@@ -1,0 +1,36 @@
+# IIITA-Crypt Architecture (Institutional Identity Specs)
+
+This plan details the multi-service architecture for IIITA-Crypt. The system integrates a MERN backend with a Python FastAPI microservice to provide role-based, secure, and context-aware chat capabilities.
+
+## Architecture Overview
+
+### 1. Identity & Attribute Extraction (Node.js Layer - Agent Alpha)
+The Node.js backend acts as an identity parser:
+- **Student Regex:** `^([a-z]{3})(20\d{2})(\d{3})@iiita\.ac\.in$`
+  - Extracts Branch (iit -> IT, iec -> ECE, itm -> IT-Business).
+  - Extracts Batch Year (to calculate Year 1, 2, 3, 4).
+- **Faculty/Staff Regex:** `^([a-z\.]+)(?<!\d)@iiita\.ac\.in$`
+  - Triggers lookup in the Staff_Registry to identify specific roles (e.g., Dean, Director, Warden).
+
+### 2. Enhanced Database Schema (MongoDB Atlas)
+The collections utilize Multi-Value Attribute Arrays:
+- **User Attributes Example:** `["Student", "IT", "Batch-2023", "Year-3", "Hostel-BH5"]`
+- **Document Policy Example:** `"(Faculty AND IT-Dept) OR (Dean)"`
+- **Vector Metadata Example:** `{ "branch": "IT", "min_year": 3, "visibility": "Public" }`
+
+### 3. Specialized IIITA Encryption (FastAPI - Agent Beta)
+Handles the "Hierarchy of Keys."
+- **Policy Enforcement:** A document uploaded (e.g., "Mess Menu for BH-1") is encrypted with: `Hostel-Warden OR BH1-Resident`.
+- **Key Generation:** Generates unique CP-ABE secret keys based on the attributes extracted by Node.js.
+- **Dean Override:** If an attribute is `Dean`, the service ignores branch/hostel restrictions and enables decryption.
+
+### 4. UI Environment Compliance (React - Agent Gamma)
+- **Theme:** "Admin-Classic" using the IIITA Color Palette (Red `#A00000`, Blue `#23495C`).
+- **Login Interface:** Replicates the IIITA LDAP/CAS Login screen to increase trust.
+- **Penrose Watermarking:** Background features a low-opacity Penrose Tiling geometric pattern representing the CC-3 building.
+- **Role-Specific Dashboards:** Custom widgets for Students (Academic/Placement), Wardens (Hostel Management), and Deans (Administrative/Policy).
+
+## Implementation Phases
+1. **Phase 1: Identity Parsing:** Build the IIITA Email Regex Engine in Node.js and initialize `system-state.json` with the full list of IIITA roles.
+2. **Phase 2: Metadata-Augmented RAG:** Inject campus attributes into the MongoDB `$vectorSearch` filter, ensuring a query from an ECE student never retrieves an IT-specific lab manual.
+3. **Phase 3: Hierarchical CP-ABE:** Implement "Dean Override" and "Hostel-Warden" encryption logic.

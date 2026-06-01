@@ -1,0 +1,14 @@
+@import "tailwindcss";
+
+@theme {
+  --color-iiita-red: #A00000;
+  --color-iiita-blue: #23495C;
+}
+
+@utility bg-penrose {
+  background-image: linear-gradient(rgba(244, 245, 247, 0.9), rgba(244, 245, 247, 0.9)), url('data:image/svg+xml;utf8,<svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"><path d="M0 0h40v40H0V0zm20 20h20v20H20V20zM0 20h20v20H0V20z" fill="%23dbe0e4" fill-opacity="0.4" fill-rule="evenodd"/></svg>');
+}
+
+body {
+  @apply bg-gray-50 text-gray-900 antialiased;
+}

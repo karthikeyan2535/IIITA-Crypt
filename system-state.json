@@ -1,0 +1,65 @@
+{
+  "backend": {
+    "port": 3000,
+    "url": "http://localhost:3000"
+  },
+  "encryption_service": {
+    "port": 8000,
+    "url": "http://localhost:8000"
+  },
+  "frontend": {
+    "port": 5173,
+    "url": "http://localhost:5173"
+  },
+  "iiita_roles": [
+    "Director", "Dean", "Warden", "Faculty", "Staff", "Student",
+    "IT", "ECE", "IT-Business",
+    "Batch-2023", "Batch-2024", "Batch-2025", "Batch-2026",
+    "Year-1", "Year-2", "Year-3", "Year-4",
+    "Hostel-BH1", "Hostel-BH2", "Hostel-BH3", "Hostel-BH4",
+    "Hostel-BH5", "Hostel-GH1", "Hostel-GH2", "Hostel-GH3"
+  ],
+  "verification_log": {
+    "phase_2_status": "Complete",
+    "phase_3_status": "Active",
+    "documents_encrypted": 13,
+    "user_profiles_encrypted": 8,
+    "vector_index_status": "Active",
+    "vector_index_name": "vector_index",
+    "rag_endpoint": "POST /api/chat",
+    "decrypt_batch_endpoint": "POST /decrypt-batch (Python :8000)",
+    "retrieval_stages": ["SEARCHING DATABASE", "DECRYPTING CHUNKS", "GENERATING RESPONSE"],
+    "last_sync": "2026-04-26T18:07:55+05:30"
+  },
+  "security_hardening": {
+    "sprint": "IIITA-Crypt Security Hardening Omni-Prompt",
+    "applied_at": "2026-06-01T12:10:00+05:30",
+    "patches": {
+      "alpha_vector_isolation": {
+        "status": "APPLIED",
+        "file": "backend/routes/chatRoutes.js",
+        "change": "general intent fallback locked to documents collection only. userprofiles is architecturally unreachable from vector search path.",
+        "boundary": "STRICT — userprofiles ISOLATED"
+      },
+      "delta_jwt_ttl": {
+        "status": "APPLIED",
+        "file": "backend/routes/authRoutes.js",
+        "change": "JWT expiration reduced from 8h to 15m. Forces re-auth on attribute changes.",
+        "ttl_old": "8h",
+        "ttl_new": "15m"
+      },
+      "beta_fail_closed": {
+        "status": "APPLIED",
+        "file": "services/encryption/main.py",
+        "change": "Policy evaluation fail-closed at both clause and outer level. Double-pass .upper().strip(). Empty clauses dropped. Any exception → 403 hard deny.",
+        "default_state": "DENY"
+      },
+      "alpha_delta_llm_containment": {
+        "status": "APPLIED",
+        "file": "backend/routes/chatRoutes.js",
+        "change": "Groq system prompt rewritten. Source text treated as passive data. LLM forbidden from following embedded instructions. REDACTED blocks trigger exact mandated response.",
+        "injection_resistance": "HARDENED"
+      }
+    }
+  }
+}
