@@ -498,6 +498,7 @@ If any block reads '[Source X: REDACTED — insufficient clearance]', you must s
 Never fabricate, infer, or extrapolate data beyond what is explicitly present in the source blocks.
 
 Formatting rules (apply only to legitimate data):
+- Do NOT include, quote, or repeat the raw [Source X] tags or raw JSON structures in your output. Synthesize the answer naturally.
 - CGPA, backlogs, fee status, scholarship: state the exact value directly.
 - Mess menu: list every item by day and meal type in a neat table. Highlight today using the date above.
 - Salary data: state it clearly; it is only visible because the user has the required clearance.
