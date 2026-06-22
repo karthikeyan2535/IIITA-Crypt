@@ -1,5 +1,10 @@
 # 🔐 IIITA-Crypt
 
+![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=node.js&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![MongoDB](https://img.shields.io/badge/MongoDB-Atlas-47A248?logo=mongodb&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-blue)
+
 > **A Zero-Trust Retrieval-Augmented Generation (RAG) System for IIIT Allahabad.**
 
 IIITA-Crypt is a highly secure, attribute-based access control (ABAC) system built for university environments. It allows students, faculty, wardens, and administrative staff to query a centralized knowledge base containing both public institutional rules and highly sensitive personal data (e.g., CGPA, salaries, fee status). 
@@ -115,3 +120,15 @@ cd backend
 node scripts/runTests.js        # Production hardening tests
 node scripts/fullAccessTest.js  # Full ABAC Role x Query matrix (126 tests)
 ```
+
+---
+
+## 🤝 Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup instructions, branch naming conventions, and the PR checklist.
+
+---
+
+## 📄 Changelog
+
+See [CHANGELOG.md](./CHANGELOG.md) for a full version history.
