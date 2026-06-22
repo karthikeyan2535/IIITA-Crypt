@@ -1,3 +1,10 @@
+/**
+ * @file ingestData.js
+ * @description Ingestion pipeline for IIITA institutional knowledge base.
+ * Reads documents from iiita_knowledge_base.json, computes source_hash (Rule 2),
+ * encrypts via CP-ABE Python service, generates OpenAI embeddings, and saves
+ * to MongoDB Atlas for vector search retrieval.
+ */
 import fs from 'fs';
 import path from 'path';
 import mongoose from 'mongoose';
@@ -47,7 +54,9 @@ const encryptContent = async (plaintext, policy) => {
 };
 
 const ingest = async () => {
-    console.log('\n--- Starting IIITA-Crypt Ingestion Pipeline ---');
+    console.log('\n─────────────────────────────────────────────────');
+    console.log('  IIITA-Crypt: Institutional Knowledge Base Ingestion');
+    console.log('─────────────────────────────────────────────────');
     
     const mongoUrl = process.env.MONGODB_URL;
     let isDbConnected = false;
