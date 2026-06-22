@@ -1,3 +1,21 @@
+"""
+IIITA-Crypt — Encryption Microservice (Agent Beta)
+====================================================
+Isolated FastAPI service that holds the Master Secret Key (MSK) and
+evaluates Ciphertext-Policy Attribute-Based Encryption (CP-ABE) policies.
+
+Endpoints:
+  POST /encrypt        — Encrypts plaintext with an embedded policy.
+  POST /decrypt        — Decrypts a ciphertext given user attributes.
+  POST /decrypt-batch  — Decrypts with an explicit fallback policy string.
+  GET  /health         — Health probe for the Node.js backend.
+
+Security Design:
+  - MSK is NEVER hardcoded. Loaded from .env via config.py, then persisted
+    to master.key for subsequent restarts.
+  - All error responses are sanitized to strip crypto material (Rule 3.2).
+  - Policy evaluation is fail-closed: any exception → hard 403 DENY.
+"""
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List
@@ -13,6 +31,7 @@ import re
 MSK_FILE = os.path.join(os.path.dirname(__file__), "master.key")
 
 def get_msk(settings) -> str:
+    """Load MSK from the persisted key file, or bootstrap from .env on first run."""
     if os.path.exists(MSK_FILE):
         with open(MSK_FILE, "r") as f:
             return f.read().strip()
