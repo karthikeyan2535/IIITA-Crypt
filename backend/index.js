@@ -1,4 +1,10 @@
-import express from 'express'; // Restarting after intent priority fix
+/**
+ * @file index.js
+ * @description IIITA-Crypt Backend Entry Point.
+ * Bootstraps the Express server, connects to MongoDB Atlas,
+ * applies JWT authentication middleware, and mounts API routes.
+ */
+import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
@@ -50,6 +56,7 @@ const authenticateJWT = (req, res, next) => {
     if (authHeader) {
         const token = authHeader.split(' ')[1];
         try {
+            // JWT_SECRET must be set in .env; fallback is for local dev only
             req.user = jwt.verify(token, process.env.JWT_SECRET || 'iiita_fallback_secret');
             next();
         } catch(e) {
