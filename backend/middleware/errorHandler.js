@@ -1,4 +1,12 @@
 /**
+ * @file errorHandler.js
+ * @description Security middleware for IIITA-Crypt.
+ * Provides two utilities:
+ *   1. sanitizeLogMessage — strips crypto material before logging (Rule 3.2)
+ *   2. redactChunkOnError — graceful chunk redaction on decryption failure (Rule 3)
+ */
+
+/**
  * Case 3.2 — Sanitizes an error message before writing to logs.
  * Strips raw base64 blobs, long hex strings, Python tracebacks, and
  * ciphertext fragments that must never appear in plaintext log output.
