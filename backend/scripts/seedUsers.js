@@ -1,3 +1,10 @@
+/**
+ * @file seedUsers.js
+ * @description Creates hashed user credential documents in MongoDB.
+ * Reads from iiita_user_profiles.json, derives email + role, bcrypt-hashes
+ * the password, and inserts a User record for each profile.
+ * Run once before starting the backend: `node scripts/seedUsers.js`
+ */
 import fs from 'fs';
 import path from 'path';
 import mongoose from 'mongoose';
@@ -32,7 +39,9 @@ const seedUsers = async () => {
         console.log(`  ✅ [${role.padEnd(7)}] ${email}`);
     }
 
-    console.log(`\n--- Seeded ${profiles.length} users ---`);
+    console.log(`\n─────────────────────────────────────────────────`);
+    console.log(`✅ Done — Seeded ${profiles.length} users successfully.`);
+    console.log(`─────────────────────────────────────────────────\n`);
     await mongoose.disconnect();
     process.exit(0);
 };
