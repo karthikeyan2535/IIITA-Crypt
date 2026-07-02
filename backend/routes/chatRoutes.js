@@ -5,11 +5,16 @@ import ChatHistory from '../models/ChatHistory.js';
 
 const router = express.Router();
 
+// ── Agent Beta: Encryption microservice URL ───────────────────────────────────
+// Set ENCRYPTION_SERVICE_URL in production (Render env var).
+// Falls back to localhost for local dev.
+const ENCRYPTION_SERVICE_URL = process.env.ENCRYPTION_SERVICE_URL || 'http://localhost:8000';
+
 // ── Agent Beta: Decrypt a single chunk via Python service ─────────────────────
 async function decryptChunk(chunk, upperAttrs) {
     try {
         const policy = (chunk.metadata?.policy || 'PUBLIC').toUpperCase();
-        const betaRes = await fetch('http://localhost:8000/decrypt-batch', {
+        const betaRes = await fetch(`${ENCRYPTION_SERVICE_URL}/decrypt-batch`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ciphertext: chunk.ciphertext, attributes: upperAttrs, policy }),
@@ -31,7 +36,28 @@ function classifyIntent(query) {
     const facultyListPattern = /\b(list.*facult(y|ies)|all.*facult(y|ies)|facult(y|ies).*salary|who.*professor|facult(y|ies).*publication|research.*facult(y|ies)|highest.*salary|who are the faculty)\b/i;
     if (facultyListPattern.test(q)) return 'admin_faculty_list';
 
+    // ── Public staff directory (any role, including students) ──────────────────
+    // "who is the dean", "who is the warden", "who is my HoD", "who teaches IT", etc.
+    if (/\b(who is (the |my )?(dean|warden|hod|head of dept|head of department|director|rector|professor|faculty advisor|registrar))\b/.test(q)) return 'staff_directory';
+    if (/\b(dean of|warden of|hod of|head of (the |)?(it|ece|management|dept|department))\b/.test(q)) return 'staff_directory';
+    if (/\b(contact (of |for )?(dean|warden|faculty|professor|hod))\b/.test(q)) return 'staff_directory';
+    if (/\b(dean.s (office|contact|phone|number|email))\b/.test(q)) return 'staff_directory';
+    if (/\b(warden.s (contact|phone|number|email))\b/.test(q)) return 'staff_directory';
+    if (/\b(faculty (advisor|contact|list|directory|phone))\b/.test(q)) return 'staff_directory';
+    if (/\b(who (runs|manages|handles|heads|is in charge of) (the |)?(college|hostel|bh-?\d|gh-?\d|institute|department|dept))\b/.test(q)) return 'staff_directory';
+    if (/\b(staff directory|staff contact|college admin|institute admin)\b/.test(q)) return 'staff_directory';
+    
+    // "who teaches IT", "which dept does sk singh teach", etc.
+    if (/\b(who teaches|who is teaching|which dept does.*teach|what does.*teach|department of (prof|dr|mr|ms|mrs|faculty))\b/.test(q)) return 'staff_directory';
+    const staffNames = /\b(sk singh|s\.?k\.? singh|anjali tiwari|manish kumar|ravi shankar|preeti rao|kavita joshi|abhay kumar|suresh pandey|nidhi verma)\b/;
+    if (staffNames.test(q)) return 'staff_directory';
+    if (/\b(teach|teaches|department|dept|office)\b/.test(q) && /\b(prof|dr|mr|ms|mrs)\b/.test(q)) return 'staff_directory';
+
     // ── Admin cross-user queries (MUST be checked FIRST before personal_ checks)
+    // Plain list queries — no attribute keyword needed (e.g. "list all students", "show me all students")
+    if (/\b(list|show|display|give me|get)\b.*\b(all\s+)?(the\s+)?students\b/.test(q)) return 'admin_student_list';
+    if (/\ball\s+(the\s+)?students\b/.test(q)) return 'admin_student_list';
+    if (/\bstudent\s+list\b/.test(q)) return 'admin_student_list';
     const listPattern = /\b(list|all students|show all|who has|which student|students with|students having|students who|give me|students (above|below|greater|less|having)|how many students|rank|topper|defaulter|students and|fee defaulter)\b/;
     const studentAttrPattern = /\b(cgpa|gpa|fee|backlog|backlogs|scholarship|address|hostel|paid|overdue|pending|arrear|merit|topper|defaulter|grade|marks|performance|roll number|id|department|dept|which dept)\b/;
     if (listPattern.test(q) && studentAttrPattern.test(q)) return 'admin_student_list';
@@ -40,7 +66,7 @@ function classifyIntent(query) {
     if (/\b(topper|top student|rank.*student|highest cgpa|best student)\b/.test(q)) return 'admin_student_list';
 
     // Named student query: "did Aarav pay?", "Aarav's CGPA", "what is Neha's fee status?", "roll number of Aarav"
-    const knownNames = /\b(aarav|sharma|riya|singh|karthik|verma|neha|gupta|rohan|das|priya|mehta|arjun|nair|sanya|kapoor|iit2023001|iec2022045|itm2024110|iit2021056|iec2023089|iit2024201|iec2021034|itm2023078)\b/;
+    const knownNames = /\b(aarav|sharma|riya|singh|karthik|verma|neha|gupta|rohan|das|priya|mehta|arjun|nair|sanya|kapoor|pakeer|karthikeyan|iit2023001|iec2022045|itm2024110|iit2021056|iec2023089|iit2024201|iec2021034|itm2023078|iit2023245)\b/;
     if (knownNames.test(q) && !/\b(my)\b/.test(q)) return 'named_student_query';
     if (/\b(roll number|roll no|id|dept|department|hostel)\b/.test(q) && knownNames.test(q)) return 'named_student_query';
 
@@ -48,9 +74,9 @@ function classifyIntent(query) {
     if (/\b(cgpa|gpa|my grade|academic record|my score|my marks|what is my cgpa)\b/.test(q))      return 'personal_cgpa';
     if (/\b(my address|my room|my hostel room|where do i live|where am i staying)\b/.test(q))      return 'personal_address';
     if (/\b(my salary|salary grade|my pay|how much do i earn|my compensation)\b/.test(q))          return 'personal_salary';
-    if (/\b(my backlog|active backlog|arrear|pending subject|failed subject)\b/.test(q))            return 'personal_backlogs';
+    if (/\b(my backlog|backlog|backlogs|active backlog|arrear|pending subject|failed subject|backlog status|any backlog|have backlog|clear backlog|back.?log)\b/.test(q))   return 'personal_backlogs';
     if (/\b(my fee|fee status|dues|pending fee|fee due|tuition due)\b/.test(q))                    return 'personal_fee';
-    if (/\b(my scholarship|am i a scholar|do i have scholarship)\b/.test(q))                       return 'personal_scholarship';
+    if (/\b(my scholarship|am i a scholar|do i have scholarship|any scholarships?|scholarships?)\b/.test(q)) return 'personal_scholarship';
     if (/\b(my guardian|guardian phone|parent contact|emergency contact)\b/.test(q))               return 'personal_guardian';
     if (/\b(my phone|my contact|my profile|my details|about me|my information)\b/.test(q))        return 'personal_general';
     // Mess menus
@@ -74,7 +100,7 @@ function classifyIntent(query) {
     if (/\b(phd|doctoral|ph\.d|research scholar|pre.?phd|doctoral commit)\b/.test(q))       return 'phd';
     if (/\b(plagiarism|academic dishonest|cheating|copying|turnitin)\b/.test(q))            return 'plagiarism';
     if (/\b(branch change|department transfer|switch branch)\b/.test(q))                    return 'branch_change';
-    if (/\b(it course|it subject|semester 5|it syllabus|faculty advisor)\b/.test(q))        return 'it_courses';
+    if (/\b(it course|it courses|it subject|semester 5|it syllabus|faculty advisor)\b/.test(q)) return 'it_courses';
     if (/\b(ece lab|ece course|electronics lab|circuit lab|lab booking)\b/.test(q))         return 'ece_lab';
     if (/\b(thesis|management thesis|it.?business thesis|dissertation)\b/.test(q))          return 'mgmt_thesis';
     // Placement
@@ -91,7 +117,7 @@ function classifyIntent(query) {
     if (/\b(disciplin|disciplinary commit|ragging complaint|misconduct case)\b/.test(q))   return 'disciplinary';
     if (/\b(fee structure|tuition fee|semester fee|how much.*fee)\b/.test(q))              return 'fee_structure';
     // Residential
-    if (/(hostel rule|hostel regulation|hostel policy|in.?time|out.?time|outing|bh.?rule|gh.?rule|bh-?\d.*rule|hostel.*rule|rule.*hostel)/.test(q)) return 'hostel_rules';
+    if (/\b(hostel rule|hostel regulation|hostel policy|in.?time|out.?time|outing|bh.?rule|gh.?rule|hostel.*rule|rule.*hostel)\b/.test(q)) return 'hostel_rules';
     if (/\b(curfew|violation|curfew.*log|who.*late|hostel.*violation)\b/.test(q))                return 'curfew';
     if (/\b(leave appl|home leave|outing appl|hostel.*leave)\b/.test(q))                        return 'hostel_leave';
     // Infrastructure
@@ -130,7 +156,7 @@ function resolveStudentHostel(upperAttrs) {
 // - Students: can ONLY access their assigned hostel's mess.
 // - Wardens: can only access their own hostel's mess.
 // - Dean / Faculty: unrestricted (can access any mess menu).
-async function resolveMessChunks(db, intent, upperAttrs, role) {
+async function resolveMessChunks(db, intent, upperAttrs, role, userId) {
     const isDean    = upperAttrs.includes('DEAN') || upperAttrs.includes('ADMIN');
     const isWarden  = upperAttrs.find(a => a.startsWith('HOSTEL-WARDEN-'));
     const isStudent = role === 'Student';
@@ -144,7 +170,25 @@ async function resolveMessChunks(db, intent, upperAttrs, role) {
 
     // ── Students: enforce their own hostel only ──────────────────────────────
     if (isStudent) {
-        const ownHostel = resolveStudentHostel(upperAttrs);
+        let ownHostel = resolveStudentHostel(upperAttrs);
+
+        // ── Fallback: HOSTEL attr missing from JWT (logged in before re-seed)
+        // Query the DB directly so the student doesn't need to re-login.
+        if (!ownHostel && userId) {
+            try {
+                const hostelDoc = await db.collection('userprofiles').findOne(
+                    { id: userId, sub_type: 'hostel' },
+                    { projection: { hostel: 1 } }
+                );
+                if (hostelDoc?.hostel) {
+                    ownHostel = hostelDoc.hostel; // e.g. "BH-2"
+                    console.log(`[Mess] Hostel resolved via DB fallback for ${userId}: ${ownHostel}`);
+                }
+            } catch (dbErr) {
+                console.warn('[Mess] DB hostel fallback failed:', dbErr.message);
+            }
+        }
+
         if (ownHostel) {
             // If they explicitly asked for a DIFFERENT hostel — redirect silently
             if (requested && requested !== ownHostel) {
@@ -153,7 +197,7 @@ async function resolveMessChunks(db, intent, upperAttrs, role) {
             // Always serve their own hostel
             return findDocsByTitleMatch(db, [ownHostel]);
         }
-        // Hostel not in JWT (e.g. profile not ingested) — deny all mess queries
+        // Hostel not in JWT and not in DB — deny mess queries
         return [];
     }
 
@@ -192,7 +236,7 @@ async function findProfilesByType(db, type, sub_types = null, limit = 40) {
 // ── Find profile by name/ID with sub_type filter ───────────────────────────
 async function findProfileByName(db, nameQuery, sub_types = null) {
     const words   = nameQuery.match(/[A-Z][a-z]+|iit\d+|iec\d+|itm\d+/g) || [];
-    const lcWords = nameQuery.toLowerCase().match(/\b(aarav|sharma|riya|singh|karthik|verma|neha|gupta|rohan|das|priya|mehta|arjun|nair|sanya|kapoor)\b/g) || [];
+    const lcWords = nameQuery.toLowerCase().match(/\b(aarav|sharma|riya|singh|karthik|verma|neha|gupta|rohan|das|priya|mehta|arjun|nair|sanya|kapoor|pakeer|karthikeyan)\b/g) || [];
     const terms   = [...new Set([...words, ...lcWords])].filter(Boolean);
     if (!terms.length) return [];
     const regex = new RegExp(terms.join('|'), 'i');
@@ -366,6 +410,17 @@ router.post('/', async (req, res) => {
                 // Regular faculty: no bulk list access
                 break;
             }
+            // ── Public staff directory: accessible to ALL roles including students ──
+            case 'staff_directory': {
+                // Fetch all public_directory sub-profiles for Faculty, Dean, and Warden
+                // Policy is PUBLIC so any authenticated user can decrypt these
+                const staffDocs = await db.collection('userprofiles').find(
+                    { sub_type: 'public_directory' },
+                    { projection: { name: 1, id: 1, type: 1, sub_type: 1, hostel: 1, sensitive_data_ciphertext: 1, metadata: 1 } }
+                ).limit(30).toArray();
+                rawChunks = staffDocs.map(toChunk);
+                break;
+            }
             // ── Mess menus: hostel-enforced access control ────────────────────────
             case 'mess_bh1':
             case 'mess_bh2':
@@ -373,7 +428,7 @@ router.post('/', async (req, res) => {
             case 'mess_bh4':
             case 'mess_bh5':
             case 'mess_general':
-                rawChunks = await resolveMessChunks(db, intent, upperAttrs, role);
+                rawChunks = await resolveMessChunks(db, intent, upperAttrs, role, userId);
                 break;
             // Academic
             case 'attendance':       rawChunks = await findDocsByTitleMatch(db, ['Attendance']); break;

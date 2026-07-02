@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { API_BASE } from '../api.js';
 
 // Agent Gamma: Thinking-state pipeline stages with icons
 const STAGES = [
@@ -16,7 +17,7 @@ const getYear   = (attrs) => {
 };
 const getHostel = (attrs) => attrs.find(a => a.startsWith('HOSTEL-')) || null;
 
-export default function Chat({ user, onLogout }) {
+export default function Chat({ user, onLogout, onTokenRefresh }) {
   const [messages, setMessages]       = useState([]);
   const [input, setInput]             = useState('');
   const [retrievalStage, setStage]    = useState(null);
@@ -28,9 +29,30 @@ export default function Chat({ user, onLogout }) {
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const res = await fetch('http://localhost:3000/api/chat/history', {
-          headers: { Authorization: `Bearer ${user.token}` }
+        let currentToken = user.token;
+        let res = await fetch(`${API_BASE}/api/chat/history`, {
+          headers: { Authorization: `Bearer ${currentToken}` }
         });
+
+        if (res.status === 401 && user.refreshToken) {
+          const refreshRes = await fetch(`${API_BASE}/api/refresh`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refreshToken: user.refreshToken })
+          });
+          if (refreshRes.ok) {
+            const data = await refreshRes.json();
+            onTokenRefresh(data.token);
+            currentToken = data.token;
+            res = await fetch(`${API_BASE}/api/chat/history`, {
+              headers: { Authorization: `Bearer ${currentToken}` }
+            });
+          } else {
+            onLogout();
+            return;
+          }
+        }
+
         if (res.ok) {
           const data = await res.json();
           if (data.messages?.length > 0) {
@@ -66,14 +88,33 @@ export default function Chat({ user, onLogout }) {
 
       // Stage 2 — Decrypt animation (during actual API call)
       setStage('decrypt');
-      const response = await fetch('http://localhost:3000/api/chat', {
+      let currentToken = user.token;
+      let response = await fetch(`${API_BASE}/api/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${user.token}`
+          Authorization: `Bearer ${currentToken}`
         },
         body: JSON.stringify({ query: userQuery })
       });
+
+      if (response.status === 401 && user.refreshToken) {
+         const refreshRes = await fetch(`${API_BASE}/api/refresh`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refreshToken: user.refreshToken })
+         });
+         if (refreshRes.ok) {
+            const data = await refreshRes.json();
+            onTokenRefresh(data.token);
+            currentToken = data.token;
+            response = await fetch(`${API_BASE}/api/chat`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${currentToken}` },
+              body: JSON.stringify({ query: userQuery })
+            });
+         }
+      }
 
       if (response.status === 401 || response.status === 403) {
         setStage(null);

@@ -14,15 +14,23 @@ import { rateLimit } from 'express-rate-limit';
 import authRoutes from './routes/authRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
 
+// In local dev, .env lives one level up. In production (Render), env vars are injected
+// directly — dotenv gracefully no-ops if the file doesn't exist.
 dotenv.config({ path: '../.env' });
+dotenv.config(); // also try CWD (works on Render where backend/ is the root)
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ── Security: CORS ────────────────────────────────────────────────────
+// FRONTEND_URL is injected as an env var in production (e.g. Render/Vercel).
+// Multiple origins can be comma-separated: "https://a.vercel.app,https://custom.domain.com"
 const allowedOrigins = [
     'http://localhost:5173',  // Vite dev server
     'http://127.0.0.1:5173',
+    ...(process.env.FRONTEND_URL
+        ? process.env.FRONTEND_URL.split(',').map(u => u.trim()).filter(Boolean)
+        : []),
 ];
 app.use(cors({
     origin: (origin, callback) => {
@@ -66,6 +74,17 @@ const authenticateJWT = (req, res, next) => {
         res.sendStatus(401);
     }
 };
+
+// ── Health Check (unauthenticated — used by Render & monitoring) ──────
+app.get('/api/health', (req, res) => {
+    const dbState = mongoose.connection.readyState; // 1 = connected
+    res.json({
+        status: dbState === 1 ? 'OK' : 'DEGRADED',
+        service: 'iiita-crypt-backend',
+        db: dbState === 1 ? 'connected' : 'disconnected',
+        ts: new Date().toISOString(),
+    });
+});
 
 // ── Routes ─────────────────────────────────────────────────────────
 app.use('/api', loginLimiter, authRoutes);

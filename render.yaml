@@ -1,0 +1,37 @@
+services:
+  # ── Python CP-ABE Encryption Microservice (Agent Beta) ────────────────────────
+  - type: web
+    name: iiita-crypt-encryption
+    runtime: docker
+    dockerfilePath: ./services/encryption/Dockerfile
+    dockerContext: ./services/encryption
+    plan: free
+    envVars:
+      - key: MSK
+        sync: false          # Set this manually in the Render dashboard (never commit!)
+    healthCheckPath: /health
+
+  # ── Node.js Backend (Agent Alpha) ─────────────────────────────────────────────
+  - type: web
+    name: iiita-crypt-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node index.js
+    plan: free
+    envVars:
+      - key: MONGODB_URL
+        sync: false          # Set manually in dashboard
+      - key: JWT_SECRET
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: ENCRYPTION_SERVICE_URL
+        sync: false          # Set to: https://iiita-crypt-encryption.onrender.com
+      - key: FRONTEND_URL
+        sync: false          # Set to your Vercel URL after frontend deploy
+      - key: NODE_ENV
+        value: production
+    healthCheckPath: /api/health
