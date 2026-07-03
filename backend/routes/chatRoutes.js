@@ -38,7 +38,8 @@ function classifyIntent(query) {
 
     // ── Public staff directory (any role, including students) ──────────────────
     // "who is the dean", "who is the warden", "who is my HoD", "who teaches IT", etc.
-    if (/\b(who is (the |my )?(dean|warden|hod|head of dept|head of department|director|rector|professor|faculty advisor|registrar))\b/.test(q)) return 'staff_directory';
+    if (/\b(who(\s?i|'?s)\s+(the|my)\s+(dean|warden|hod|head of dept|head of department|director|rector|professor|faculty advisor|registrar))\b/.test(q)) return 'staff_directory';
+    if (/\b(who(\s?i|'?s)\s+(the|my)\s+(college|institute|campus)\s+(dean|head|director))\b/.test(q)) return 'staff_directory';
     if (/\b(dean of|warden of|hod of|head of (the |)?(it|ece|management|dept|department))\b/.test(q)) return 'staff_directory';
     if (/\b(contact (of |for )?(dean|warden|faculty|professor|hod))\b/.test(q)) return 'staff_directory';
     if (/\b(dean.s (office|contact|phone|number|email))\b/.test(q)) return 'staff_directory';
@@ -46,11 +47,14 @@ function classifyIntent(query) {
     if (/\b(faculty (advisor|contact|list|directory|phone))\b/.test(q)) return 'staff_directory';
     if (/\b(who (runs|manages|handles|heads|is in charge of) (the |)?(college|hostel|bh-?\d|gh-?\d|institute|department|dept))\b/.test(q)) return 'staff_directory';
     if (/\b(staff directory|staff contact|college admin|institute admin)\b/.test(q)) return 'staff_directory';
+    // college/institute head variations
+    if (/\b(college dean|institute dean|dean of college|head of college|head of institute|who.*dean|dean.*who)\b/.test(q)) return 'staff_directory';
     
     // "who teaches IT", "which dept does sk singh teach", etc.
     if (/\b(who teaches|who is teaching|which dept does.*teach|what does.*teach|department of (prof|dr|mr|ms|mrs|faculty))\b/.test(q)) return 'staff_directory';
-    const staffNames = /\b(sk singh|s\.?k\.? singh|anjali tiwari|manish kumar|ravi shankar|preeti rao|kavita joshi|abhay kumar|suresh pandey|nidhi verma)\b/;
-    if (staffNames.test(q)) return 'staff_directory';
+    // Faculty name + dept/designation queries → staff_directory (PUBLIC)
+    const facultyNames = /\b(sk singh|s\.?k\.? singh|anjali tiwari|manish kumar|ravi shankar|preeti rao|kavita joshi|abhay kumar|suresh pandey|nidhi verma)\b/i;
+    if (facultyNames.test(q)) return 'staff_directory';
     if (/\b(teach|teaches|department|dept|office)\b/.test(q) && /\b(prof|dr|mr|ms|mrs)\b/.test(q)) return 'staff_directory';
 
     // ── Admin cross-user queries (MUST be checked FIRST before personal_ checks)
@@ -372,6 +376,7 @@ router.post('/', async (req, res) => {
                 const isDeanQ  = upperAttrs.includes('DEAN') || upperAttrs.includes('ADMIN');
                 const isFaculty = upperAttrs.includes('FACULTY');
                 const wardenAttr = upperAttrs.find(a => a.startsWith('HOSTEL-WARDEN-'));
+                const isGuest = req.user.isGuest;
                 
                 if (isDeanQ) {
                     // Dean: fetch academic + hostel + directory sub-profiles
@@ -384,6 +389,10 @@ router.post('/', async (req, res) => {
                 } else if (wardenAttr) {
                     // Warden: hostel sub-profile (room/address) + directory info
                     const profiles = await findProfileByName(db, query, ['hostel', 'directory']);
+                    rawChunks = profiles.map(toChunk);
+                } else if (isGuest) {
+                    // Guest: only public_directory — name/dept/designation info (PUBLIC policy)
+                    const profiles = await findProfileByName(db, query, ['public_directory']);
                     rawChunks = profiles.map(toChunk);
                 } else {
                     // Non-admin/non-faculty: own profile only (privacy gate)
