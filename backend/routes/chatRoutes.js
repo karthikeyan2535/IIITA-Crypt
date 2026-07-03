@@ -132,6 +132,11 @@ function classifyIntent(query) {
     if (/\b(sports|gym|cricket|football|badminton|sports complex)\b/.test(q))              return 'sports';
     if (/\b(medical|health|doctor|hospital|ambulance|insurance|sick)\b/.test(q))           return 'medical';
     if (/\b(anti.?ragging|ragging|helpline)\b/.test(q))                                    return 'anti_ragging';
+    // Admissions & general IIITA info (important for guests)
+    if (/\b(admission|admissions|how to apply|apply for|jee|josaa|jee main|eligibility|entrance|get into|join iiita|iiita admission)\b/.test(q)) return 'admission';
+    if (/\b(programs?|courses? offered|b\.?tech|m\.?tech|phd|mba|degree|branches?|what does iiita offer|iiita programs?|iiita courses?)\b/.test(q)) return 'programs';
+    if (/\b(about iiita|about iiit allahabad|what is iiita|iiita overview|iiit allahabad|tell me about iiita|history of iiita|iiita information)\b/.test(q)) return 'about_iiita';
+    if (/\b(campus|facilities|hostel|mess|sports|clubs|fest|effervescence|avensis|campus life)\b/.test(q) && /\b(iiita|college|institute)\b/.test(q)) return 'campus_life';
     if (/\b(my|me|mine)\b/.test(q))                                                         return 'personal_general';
     return 'general';
 }
@@ -476,6 +481,10 @@ router.post('/', async (req, res) => {
             case 'sports':           rawChunks = await findDocsByTitleMatch(db, ['Sports Complex']); break;
             case 'medical':          rawChunks = await findDocsByTitleMatch(db, ['Medical', 'Health']); break;
             case 'anti_ragging':     rawChunks = await findDocsByTitleMatch(db, ['Anti-Ragging']); break;
+            case 'admission':        rawChunks = await findDocsByTitleMatch(db, ['Admission', 'Eligibility', 'IIITA Admission']); break;
+            case 'programs':         rawChunks = await findDocsByTitleMatch(db, ['Programs', 'Courses Offered', 'B.Tech', 'IIITA Programs']); break;
+            case 'about_iiita':      rawChunks = await findDocsByTitleMatch(db, ['About IIIT', 'IIITA']); break;
+            case 'campus_life':      rawChunks = await findDocsByTitleMatch(db, ['Campus Life', 'Facilities', 'IIITA Campus']); break;
             default: {
                 // ── Agent Alpha: Vector Segregation Enforcement ──────────────────────
                 // SECURITY BOUNDARY: The general-intent fallback is STRICTLY isolated

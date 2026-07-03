@@ -37,8 +37,9 @@ const generateEmbedding = async (text) => {
 };
 
 const encryptContent = async (plaintext, policy) => {
+    const encryptUrl = process.env.ENCRYPTION_SERVICE_URL || 'http://localhost:8000';
     try {
-        const response = await fetch('http://localhost:8000/encrypt', {
+        const response = await fetch(`${encryptUrl}/encrypt`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ plaintext, policy })
