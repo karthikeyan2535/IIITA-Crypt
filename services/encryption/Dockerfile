@@ -1,12 +1,8 @@
 FROM python:3.10-slim-bullseye
 
-# Install C-dependencies for pyabe/pypairing
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    libgmp-dev \
-    libpbc-dev \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
+# No native C extensions needed — the encryption service uses only
+# Python stdlib crypto (hmac, hashlib, base64) plus FastAPI/uvicorn.
+# libpbc-dev is not available in Bullseye apt repos and is not required.
 
 WORKDIR /app
 
@@ -15,7 +11,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Expose port based on system-state.json plan
 EXPOSE 8000
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
