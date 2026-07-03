@@ -25,9 +25,19 @@ export default function Chat({ user, onLogout, onTokenRefresh }) {
 
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
 
-  // Fetch chat history on mount
+  // Fetch chat history on mount (skipped for guest sessions)
   useEffect(() => {
     const fetchHistory = async () => {
+      // Guest: no history, just show welcome
+      if (user.isGuest) {
+        setMessages([{
+          _id: 'welcome',
+          sender: 'bot',
+          text: `Welcome to **IIITA-Crypt** 🔐\n\nYou are browsing as a **Guest**. You have access to **PUBLIC** content only.\n\n> ⚠️ This is an ephemeral session — your chat history will not be saved after you sign out.\n\nFeel free to ask about general IIITA information!`
+        }]);
+        return;
+      }
+
       try {
         let currentToken = user.token;
         let res = await fetch(`${API_BASE}/api/chat/history`, {
@@ -68,7 +78,8 @@ export default function Chat({ user, onLogout, onTokenRefresh }) {
       } catch (_) { /* ignore */ }
     };
     fetchHistory();
-  }, [user.token, user.role, user.attributes, user.email]);
+  }, [user.token, user.role, user.attributes, user.email, user.isGuest]);
+
 
   useEffect(() => { scrollToBottom(); }, [messages, retrievalStage]);
 
@@ -213,6 +224,24 @@ export default function Chat({ user, onLogout, onTokenRefresh }) {
             <p className="text-xs text-gray-400 italic mt-1">"Research grant application process"</p>
             <p className="text-xs text-gray-400 italic mt-1">"Teaching load norms"</p>
             <p className="text-xs text-gray-400 italic mt-1">"Conference travel grant policy"</p>
+          </WidgetCard>
+        </>
+      );
+    }
+
+    // Guest
+    if (user.role === 'Guest') {
+      return (
+        <>
+          <WidgetCard title="👤 Guest Session">
+            <p className="text-xs text-gray-500">Public content only.</p>
+            <p className="text-xs mt-2 font-semibold" style={{color:'#A00000'}}>⚠️ Ephemeral</p>
+            <p className="text-xs text-gray-400 mt-0.5">History clears on sign out.</p>
+          </WidgetCard>
+          <WidgetCard title="🔍 Try Asking">
+            <p className="text-xs text-gray-400 italic">"What programs does IIITA offer?"</p>
+            <p className="text-xs text-gray-400 italic mt-1">"What is the admission process?"</p>
+            <p className="text-xs text-gray-400 italic mt-1">"Tell me about IIIT Allahabad"</p>
           </WidgetCard>
         </>
       );

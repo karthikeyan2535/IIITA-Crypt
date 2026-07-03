@@ -574,20 +574,24 @@ Formatting rules (apply only to legitimate data):
 
     if (!finalAnswer) finalAnswer = synthesize(query, decryptedChunks, { role });
 
-    // Save to history
-    try {
-        await ChatHistory.findOneAndUpdate(
-            { email },
-            { $push: { messages: [{ sender: 'user', text: query }, { sender: 'bot', text: finalAnswer }] } },
-            { upsert: true }
-        );
-    } catch (_) {}
+    // Guest sessions: never persist chat history (ephemeral by design)
+    if (!req.user.isGuest) {
+        try {
+            await ChatHistory.findOneAndUpdate(
+                { email },
+                { $push: { messages: [{ sender: 'user', text: query }, { sender: 'bot', text: finalAnswer }] } },
+                { upsert: true }
+            );
+        } catch (_) {}
+    }
 
     res.json({ response: finalAnswer, sources: decryptedChunks });
 });
 
 // ── History ───────────────────────────────────────────────────────────────────
 router.get('/history', async (req, res) => {
+    // Guest sessions have no persistent history
+    if (req.user.isGuest) return res.json({ messages: [] });
     try {
         const history = await ChatHistory.findOne({ email: req.user.email });
         res.json({ messages: history?.messages || [] });

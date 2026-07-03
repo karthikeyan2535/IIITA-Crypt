@@ -188,4 +188,20 @@ router.post('/refresh', async (req, res) => {
     }
 });
 
+// ── Guest Login Route ─────────────────────────────────────────────────────────
+// Issues a short-lived, ephemeral JWT with PUBLIC-only attributes.
+// isGuest: true prevents any chat history from being saved (chatRoutes.js).
+router.post('/guest-login', (req, res) => {
+    const guestEmail = `guest_${Date.now()}@iiita.ac.in`;
+    const token = jwt.sign(
+        { email: guestEmail, role: 'Guest', attributes: ['PUBLIC'], isGuest: true },
+        process.env.JWT_SECRET || 'iiita_fallback_secret',
+        { expiresIn: '2h' }
+    );
+    res.json({
+        token,
+        user: { email: guestEmail, role: 'Guest', attributes: ['PUBLIC'], isGuest: true, token }
+    });
+});
+
 export default router;

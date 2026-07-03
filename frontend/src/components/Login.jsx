@@ -7,6 +7,22 @@ export default function Login({ onLoginSuccess }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [guestLoading, setGuestLoading] = useState(false);
+
+  const handleGuestLogin = async () => {
+    setGuestLoading(true);
+    setError('');
+    try {
+      const res = await fetch(`${API_BASE}/api/guest-login`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Guest login failed');
+      onLoginSuccess(data.user);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setGuestLoading(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -114,6 +130,20 @@ export default function Login({ onLoginSuccess }) {
         <p className="text-xs text-gray-400 mt-1">
           Your identity attributes are cryptographically signed into your session.
         </p>
+      </div>
+
+      {/* Guest Login */}
+      <div className="mt-4 pt-4 border-t border-dashed border-gray-200 text-center">
+        <p className="text-xs text-gray-400 mb-2">No credentials? Explore with limited access.</p>
+        <button
+          id="guest-login-btn"
+          type="button"
+          onClick={handleGuestLogin}
+          disabled={guestLoading || loading}
+          className="w-full py-2.5 px-4 rounded-lg border border-gray-300 text-sm font-medium text-gray-500 hover:bg-gray-50 hover:border-gray-400 hover:text-gray-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {guestLoading ? '⏳ Entering...' : '👤 Continue as Guest'}
+        </button>
       </div>
     </div>
   );
