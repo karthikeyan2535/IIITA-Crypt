@@ -133,12 +133,58 @@ router.post('/login', async (req, res) => {
             { expiresIn: '15m' }  // Agent Delta: shortened TTL — forces re-auth on attribute changes
         );
 
+        const refreshToken = jwt.sign(
+            { email: email.toLowerCase() },
+            process.env.JWT_SECRET || 'iiita_fallback_secret',
+            { expiresIn: '7d' } // Long-lived refresh token
+        );
+
         res.json({
             token,
-            user: { email: email.toLowerCase(), role: identity.role, attributes: identity.attributes, token }
+            user: { email: email.toLowerCase(), role: identity.role, attributes: identity.attributes, token, refreshToken }
         });
     } catch (error) {
         res.status(401).json({ error: error.message });
+    }
+});
+
+// ── Refresh Token Route ───────────────────────────────────────────────────────
+router.post('/refresh', async (req, res) => {
+    const { refreshToken } = req.body;
+    if (!refreshToken) return res.status(401).json({ error: 'Refresh token required.' });
+
+    try {
+        const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET || 'iiita_fallback_secret');
+        const email = decoded.email;
+
+        const { default: User } = await import('../models/User.js');
+        const userRecord = await User.findOne({ email });
+        if (!userRecord) return res.status(401).json({ error: 'User no longer exists.' });
+
+        const identity = parseIIITAEmail(email);
+
+        // ── Re-fetch dynamic attributes (Hostel) ──
+        if (identity.role === 'Student') {
+            try {
+                const { default: UserProfile } = await import('../models/UserProfile.js');
+                const userId = email.split('@')[0];
+                const hostelDoc = await UserProfile.findOne({ id: userId, sub_type: 'hostel' }, { hostel: 1 });
+                if (hostelDoc?.hostel) {
+                    const hostelCode = hostelDoc.hostel.replace('-', '').toUpperCase();
+                    identity.attributes.push(`HOSTEL-${hostelCode}`);
+                }
+            } catch (_) {}
+        }
+
+        const token = jwt.sign(
+            { email, role: identity.role, attributes: identity.attributes },
+            process.env.JWT_SECRET || 'iiita_fallback_secret',
+            { expiresIn: '15m' }
+        );
+
+        res.json({ token, user: { email, role: identity.role, attributes: identity.attributes, token, refreshToken } });
+    } catch (error) {
+        res.status(401).json({ error: 'Invalid or expired refresh token. Please log in again.' });
     }
 });
 

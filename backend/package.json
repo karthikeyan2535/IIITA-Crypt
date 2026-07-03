@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js",
+    "dev": "concurrently \"nodemon index.js\" \"cd ../services/encryption && python main.py\"",
     "test": "node scripts/runTests.js",
     "seed": "node scripts/seedUsers.js && node scripts/ingestData.js && node scripts/ingestProfiles.js",
     "reencrypt": "node scripts/reEncrypt.js"
@@ -24,6 +24,7 @@
     "openai": "^6.34.0"
   },
   "devDependencies": {
+    "concurrently": "^10.0.3",
     "nodemon": "^3.1.0"
   }
 }

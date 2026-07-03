@@ -101,13 +101,24 @@ const ingestStudent = async (p) => {
     });
 };
 
-// ── FACULTY: Two sub-profiles ─────────────────────────────────────────────────
-// contact   → Faculty + HoD + Dean
-// salary    → ONLY Dean + HoD + self (other faculty CANNOT see each other's salaries)
+// ── FACULTY: Three sub-profiles ─────────────────────────────────────────────────
+// public_directory → PUBLIC (name, designation, dept, phone — students can see)
+// contact          → Faculty + HoD + Dean (professional details)
+// salary           → ONLY Dean + HoD + self (other faculty CANNOT see each other's salaries)
 const ingestFaculty = async (p) => {
     const facultyId = p.ID.toUpperCase().replace('.', '.');
     const dept      = (p.Dept || 'STAFF').toUpperCase().replace('MANAGEMENT', 'MGMT');
     const hodAttr   = `HOD-${dept}`;
+
+    // 0️⃣  PUBLIC DIRECTORY — anyone (including students) can see basic info
+    await saveSubProfile({
+        type: 'Faculty', sub_type: 'public_directory',
+        name: p.Name, id: p.ID, dept: p.Dept,
+        data: { Name: p.Name, ID: p.ID, Department: p.Dept, Designation: p.Designation, Phone: p.Phone },
+        policy: 'PUBLIC',
+        description: 'Faculty Public Directory',
+        searchText: `${p.Name} faculty professor ${p.Dept} ${p.Designation} staff directory contact`
+    });
 
     // 1️⃣  CONTACT / PROFESSIONAL INFO — visible to same-dept faculty
     await saveSubProfile({
@@ -130,7 +141,9 @@ const ingestFaculty = async (p) => {
     });
 };
 
-// ── DEAN / WARDEN: Single profile ─────────────────────────────────────────────
+// ── DEAN / WARDEN: Two sub-profiles ─────────────────────────────────────────────
+// public_directory → PUBLIC (name, designation, office/hostel, phone — students can see)
+// admin            → Restricted to ADMIN/DEAN or HOSTEL-WARDEN-*
 const ingestAdmin = async (p) => {
     const adminId = p.ID.toUpperCase().replace('.', '.');
     const data = {
@@ -139,6 +152,19 @@ const ingestAdmin = async (p) => {
         Hostel: p.Hostel, Residents_Count: p.Residents_Count, Pending_Leaves: p.Pending_Leaves
     };
     const policy = p.suggested_policy;
+
+    // 0️⃣  PUBLIC DIRECTORY — anyone (including students) can see basic contact info
+    await saveSubProfile({
+        type: p.type, sub_type: 'public_directory',
+        name: p.Name, id: p.ID,
+        hostel: p.Hostel || null,
+        data: { Name: p.Name, ID: p.ID, Designation: p.Designation, Office: p.Office || p.Hostel, Phone: p.Phone },
+        policy: 'PUBLIC',
+        description: `${p.type} Public Directory`,
+        searchText: `${p.Name} ${p.type} ${p.Designation || ''} ${p.Hostel || ''} ${p.Office || ''} administrator warden dean contact`
+    });
+
+    // 1️⃣  FULL ADMIN PROFILE — restricted
     await saveSubProfile({
         type: p.type, sub_type: 'admin',
         name: p.Name, id: p.ID,

@@ -15,12 +15,16 @@ function App() {
     setUser(null);
   };
 
+  const handleTokenRefresh = (newToken) => {
+    setUser((prev) => ({ ...prev, token: newToken }));
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-penrose">
       {!user ? (
         <Login onLoginSuccess={handleLogin} />
       ) : (
-        <Chat user={user} onLogout={handleLogout} />
+        <Chat user={user} onLogout={handleLogout} onTokenRefresh={handleTokenRefresh} />
       )}
     </div>
   );
