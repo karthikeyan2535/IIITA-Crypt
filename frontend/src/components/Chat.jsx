@@ -83,87 +83,62 @@ export default function Chat({ user, onLogout, onTokenRefresh }) {
 
   useEffect(() => { scrollToBottom(); }, [messages, retrievalStage]);
 
-  const handleSend = async (e) => {
-    e.preventDefault();
-    if (!input.trim() || retrievalStage) return;
+  // ── Core query sender — used by both the form and sidebar chips ──────────────
+  const sendQuery = async (queryText) => {
+    if (!queryText.trim() || retrievalStage) return;
 
-    const userQuery = input;
     const tempId = Date.now();
-    setMessages(prev => [...prev, { _id: tempId, sender: 'user', text: userQuery }]);
+    setMessages(prev => [...prev, { _id: tempId, sender: 'user', text: queryText }]);
     setInput('');
 
     try {
-      // Stage 1 — Search animation
       setStage('search');
       await new Promise(r => setTimeout(r, 600));
 
-      // Stage 2 — Decrypt animation (during actual API call)
       setStage('decrypt');
       let currentToken = user.token;
       let response = await fetch(`${API_BASE}/api/chat`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${currentToken}`
-        },
-        body: JSON.stringify({ query: userQuery })
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${currentToken}` },
+        body: JSON.stringify({ query: queryText })
       });
 
       if (response.status === 401 && user.refreshToken) {
-         const refreshRes = await fetch(`${API_BASE}/api/refresh`, {
+        const refreshRes = await fetch(`${API_BASE}/api/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken: user.refreshToken })
+        });
+        if (refreshRes.ok) {
+          const data = await refreshRes.json();
+          onTokenRefresh(data.token);
+          currentToken = data.token;
+          response = await fetch(`${API_BASE}/api/chat`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ refreshToken: user.refreshToken })
-         });
-         if (refreshRes.ok) {
-            const data = await refreshRes.json();
-            onTokenRefresh(data.token);
-            currentToken = data.token;
-            response = await fetch(`${API_BASE}/api/chat`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${currentToken}` },
-              body: JSON.stringify({ query: userQuery })
-            });
-         }
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${currentToken}` },
+            body: JSON.stringify({ query: queryText })
+          });
+        }
       }
 
-      if (response.status === 401 || response.status === 403) {
-        setStage(null);
-        onLogout();
-        return;
-      }
+      if (response.status === 401 || response.status === 403) { setStage(null); onLogout(); return; }
 
       const data = await response.json();
-
-      // Stage 3 — Synthesis animation
       setStage('generate');
       await new Promise(r => setTimeout(r, 500));
       setStage(null);
 
       const botText = data.response || '⚠️ No relevant documents found within your access scope.';
-      const policies = data.sources?.length > 0
-        ? [...new Set(data.sources.map(s => s.policy || 'PUBLIC'))]
-        : [];
-      const types = data.sources?.length > 0
-        ? [...new Set(data.sources.map(s => s.type))]
-        : [];
-
-      setMessages(prev => [...prev, {
-        _id: tempId + 1,
-        sender: 'bot',
-        text: botText,
-        policies,
-        types,
-      }]);
+      const policies = data.sources?.length > 0 ? [...new Set(data.sources.map(s => s.policy || 'PUBLIC'))] : [];
+      const types    = data.sources?.length > 0 ? [...new Set(data.sources.map(s => s.type))]                : [];
+      setMessages(prev => [...prev, { _id: tempId + 1, sender: 'bot', text: botText, policies, types }]);
     } catch (_) {
       setStage(null);
-      setMessages(prev => [...prev, {
-        _id: Date.now(),
-        sender: 'bot',
-        text: '⚠️ Network error. Please check that the backend is running on port 3000.'
-      }]);
+      setMessages(prev => [...prev, { _id: Date.now(), sender: 'bot', text: '⚠️ Network error. Please check your connection.' }]);
     }
   };
+
+  const handleSend = (e) => { e.preventDefault(); sendQuery(input); };
 
   // ── Role-Adaptive Sidebar ──────────────────────────────────────────────────
   const renderWidgets = () => {
@@ -184,10 +159,10 @@ export default function Chat({ user, onLogout, onTokenRefresh }) {
             <InfoRow label="Departments" value="3" />
           </WidgetCard>
           <WidgetCard title="🔍 Try Asking">
-            <p className="text-xs text-gray-400 italic">"What is the department budget?"</p>
-            <p className="text-xs text-gray-400 italic mt-1">"MCM scholarship quotas"</p>
-            <p className="text-xs text-gray-400 italic mt-1">"Faculty performance review criteria"</p>
-            <p className="text-xs text-gray-400 italic mt-1">"Branch change policy"</p>
+            <SuggestChip label="What is the department budget?" onSend={sendQuery} disabled={!!retrievalStage} />
+            <SuggestChip label="MCM scholarship quotas" onSend={sendQuery} disabled={!!retrievalStage} />
+            <SuggestChip label="Faculty performance review criteria" onSend={sendQuery} disabled={!!retrievalStage} />
+            <SuggestChip label="Branch change policy" onSend={sendQuery} disabled={!!retrievalStage} />
           </WidgetCard>
         </>
       );
@@ -202,10 +177,10 @@ export default function Chat({ user, onLogout, onTokenRefresh }) {
             <InfoRow label="Status" value="Active" />
           </WidgetCard>
           <WidgetCard title="🔍 Try Asking">
-            <p className="text-xs text-gray-400 italic">"{hostel} hostel rules"</p>
-            <p className="text-xs text-gray-400 italic mt-1">"Curfew violation log"</p>
-            <p className="text-xs text-gray-400 italic mt-1">"{hostel} mess menu"</p>
-            <p className="text-xs text-gray-400 italic mt-1">"Hostel leave application process"</p>
+            <SuggestChip label={`${hostel} hostel rules`} onSend={sendQuery} disabled={!!retrievalStage} />
+            <SuggestChip label="Curfew violation log" onSend={sendQuery} disabled={!!retrievalStage} />
+            <SuggestChip label={`${hostel} mess menu`} onSend={sendQuery} disabled={!!retrievalStage} />
+            <SuggestChip label="Hostel leave application process" onSend={sendQuery} disabled={!!retrievalStage} />
           </WidgetCard>
         </>
       );
@@ -220,10 +195,10 @@ export default function Chat({ user, onLogout, onTokenRefresh }) {
             {dept && <InfoRow label="Department" value={dept} />}
           </WidgetCard>
           <WidgetCard title="🔍 Try Asking">
-            <p className="text-xs text-gray-400 italic">"What is my salary?"</p>
-            <p className="text-xs text-gray-400 italic mt-1">"Research grant application process"</p>
-            <p className="text-xs text-gray-400 italic mt-1">"Teaching load norms"</p>
-            <p className="text-xs text-gray-400 italic mt-1">"Conference travel grant policy"</p>
+            <SuggestChip label="What is my salary?" onSend={sendQuery} disabled={!!retrievalStage} />
+            <SuggestChip label="Research grant application process" onSend={sendQuery} disabled={!!retrievalStage} />
+            <SuggestChip label="Teaching load norms" onSend={sendQuery} disabled={!!retrievalStage} />
+            <SuggestChip label="Conference travel grant policy" onSend={sendQuery} disabled={!!retrievalStage} />
           </WidgetCard>
         </>
       );
@@ -239,9 +214,9 @@ export default function Chat({ user, onLogout, onTokenRefresh }) {
             <p className="text-xs text-gray-400 mt-0.5">History clears on sign out.</p>
           </WidgetCard>
           <WidgetCard title="🔍 Try Asking">
-            <p className="text-xs text-gray-400 italic">"What programs does IIITA offer?"</p>
-            <p className="text-xs text-gray-400 italic mt-1">"What is the admission process?"</p>
-            <p className="text-xs text-gray-400 italic mt-1">"Tell me about IIIT Allahabad"</p>
+            <SuggestChip label="What programs does IIITA offer?" onSend={sendQuery} disabled={!!retrievalStage} />
+            <SuggestChip label="What is the admission process?" onSend={sendQuery} disabled={!!retrievalStage} />
+            <SuggestChip label="Who is the college dean?" onSend={sendQuery} disabled={!!retrievalStage} />
           </WidgetCard>
         </>
       );
@@ -259,17 +234,17 @@ export default function Chat({ user, onLogout, onTokenRefresh }) {
         </WidgetCard>
         <WidgetCard title="💼 Placement">
           <p className="text-xs text-gray-500">Season 2025-26 open.</p>
-          <p className="text-xs text-gray-400 mt-1 italic">Try: "Show me placement opportunities"</p>
+          <SuggestChip label="Show me placement opportunities" onSend={sendQuery} disabled={!!retrievalStage} />
         </WidgetCard>
         <WidgetCard title="🍽️ Mess">
           <p className="text-xs text-gray-500">Ask for today&apos;s hostel mess menu!</p>
-          <p className="text-xs text-gray-400 mt-1 italic">Try: "BH-1 mess menu"</p>
+          <SuggestChip label="BH-1 mess menu" onSend={sendQuery} disabled={!!retrievalStage} />
         </WidgetCard>
         <WidgetCard title="🔍 More Queries">
-          <p className="text-xs text-gray-400 italic">"What is my CGPA?"</p>
-          <p className="text-xs text-gray-400 italic mt-1">"What are my backlogs?"</p>
-          <p className="text-xs text-gray-400 italic mt-1">"What is my fee status?"</p>
-          <p className="text-xs text-gray-400 italic mt-1">"Grade appeal process"</p>
+          <SuggestChip label="What is my CGPA?" onSend={sendQuery} disabled={!!retrievalStage} />
+          <SuggestChip label="What are my backlogs?" onSend={sendQuery} disabled={!!retrievalStage} />
+          <SuggestChip label="What is my fee status?" onSend={sendQuery} disabled={!!retrievalStage} />
+          <SuggestChip label="Grade appeal process" onSend={sendQuery} disabled={!!retrievalStage} />
         </WidgetCard>
       </>
     );
@@ -407,6 +382,19 @@ function WidgetCard({ title, children }) {
       <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{color:'#A00000'}}>{title}</p>
       {children}
     </div>
+  );
+}
+
+function SuggestChip({ label, onSend, disabled }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSend(label)}
+      disabled={disabled}
+      className="mt-1 w-full text-left px-2 py-1.5 rounded-md text-xs text-gray-500 bg-gray-50 border border-gray-200 hover:bg-red-50 hover:border-red-200 hover:text-red-700 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+    >
+      ↗ {label}
+    </button>
   );
 }
 
