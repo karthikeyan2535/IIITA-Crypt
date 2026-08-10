@@ -45,6 +45,7 @@ export const redactChunkOnError = (chunk, error) => {
         title: chunk.title || 'Restricted Document',
         policy: chunk.metadata?.policy || chunk.policy || 'Classified',
         plaintext: `[REDACTED: Access Denied — Administrative clearance required]`,
-        status: 'redacted'
+        status: 'redacted',
+        error: safeMsg
     };
 };
