@@ -28,20 +28,10 @@ Unlike traditional systems, **data is encrypted at rest using a simulated Cipher
 
 ```mermaid
 graph TD
-    User([User / Browser]) -->|JWT + Query| Frontend[React Frontend]
-    Frontend -->|REST API| Backend[Node.js Backend]
-    
-    Backend -->|Intent Routing| DB[(MongoDB Atlas)]
-    Backend -->|Vector Search| DB
-    DB -->|Encrypted Chunks| PolicyGate[Security Middleware]
-    
-    PolicyGate -->|Chunk + User Attrs| CryptoService[Python FastAPI]
-    CryptoService -->|MSK Validation| CryptoService
-    CryptoService -->|Decrypted Text OR 403| PolicyGate
-    
-    PolicyGate -->|Context + Redactions| LLM[Groq: Llama-3.3-70b]
-    LLM -->|Synthesized Answer| Backend
-    Backend --> Frontend
+    A[React Frontend] <-->|JWT Auth & HTTPS Queries| B[Node.js Backend]
+    B <-->|Mongoose Queries| C[(MongoDB Atlas)]
+    B <-->|HTTPS Encrypt/Decrypt API| D[FastAPI Encryption Service]
+    D <-->|Loads/Persists MSK| E[master.key / .env]
 ```
 
 ### System Components
