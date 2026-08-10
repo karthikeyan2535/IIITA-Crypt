@@ -18,7 +18,7 @@ async function decryptChunk(chunk, upperAttrs) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ciphertext: chunk.ciphertext, attributes: upperAttrs, policy }),
-            signal: AbortSignal.timeout(6000)
+            signal: AbortSignal.timeout(45000)
         });
         if (!betaRes.ok) throw new Error(`Beta ${betaRes.status}: ${await betaRes.text()}`);
         const { plaintext } = await betaRes.json();

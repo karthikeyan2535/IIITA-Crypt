@@ -4,6 +4,18 @@ import bcrypt from 'bcryptjs';
 
 const router = express.Router();
 
+const ENCRYPTION_SERVICE_URL = process.env.ENCRYPTION_SERVICE_URL || 'http://localhost:8000';
+
+const warmUpEncryptionService = () => {
+    fetch(`${ENCRYPTION_SERVICE_URL}/health`)
+        .then(res => {
+            if (res.ok) console.log('[Auth] Encryption service is awake and healthy.');
+        })
+        .catch(err => {
+            console.warn('[Auth] Encryption service warmup ping triggered:', err.message);
+        });
+};
+
 // ── Staff Registry (mirrors iiita_user_profiles.json role assignments) ─────────
 const STAFF_REGISTRY = {
     'dean.acad':   { role: 'Dean',    attributes: ['PUBLIC', 'DEAN', 'ADMIN', 'FACULTY', 'ADMINISTRATION'] },
@@ -84,6 +96,7 @@ const parseIIITAEmail = (email) => {
 
 // ── Login Route ───────────────────────────────────────────────────────────────
 router.post('/login', async (req, res) => {
+    warmUpEncryptionService();
     const { email, password } = req.body;
 
     if (!email || !password) {
@@ -192,6 +205,7 @@ router.post('/refresh', async (req, res) => {
 // Issues a short-lived, ephemeral JWT with PUBLIC-only attributes.
 // isGuest: true prevents any chat history from being saved (chatRoutes.js).
 router.post('/guest-login', (req, res) => {
+    warmUpEncryptionService();
     const guestEmail = `guest_${Date.now()}@iiita.ac.in`;
     const token = jwt.sign(
         { email: guestEmail, role: 'Guest', attributes: ['PUBLIC'], isGuest: true },
