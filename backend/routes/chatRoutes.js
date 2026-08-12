@@ -850,12 +850,10 @@ router.post('/', async (req, res) => {
 
             const isAdminQ = ['admin_student_list', 'admin_faculty_list'].includes(intent);
 
-            const completion = await groq.chat.completions.create({
-                model: 'llama-3.3-70b-versatile',
-                messages: [
-                    {
-                        role: 'system',
-                        content: `You are a helpful, accurate, and concise university assistant for IIIT Allahabad.
+            const messages = [
+                {
+                    role: 'system',
+                    content: `You are a helpful, accurate, and concise university assistant for IIIT Allahabad.
 Current date and time (IST): ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
 Authenticated user: ${email} | Role: ${role} | Clearance: [${upperAttrs.join(', ')}]
 
@@ -877,16 +875,36 @@ Formatting & Conciseness Rules:
   * Salary: State ONLY the salary.
 - Do NOT quote raw [Source X] tags or raw JSON structures. Synthesize the answer naturally in plain language.
 - Be concise, direct, accurate, and answer in 1-2 short sentences unless full list/table is explicitly requested.`
-                    },
-                    { role: 'user', content: `Context:\n${context}${redactedNote}\n\nQuestion: ${query}` }
-                ],
-                max_tokens: isAdminQ ? 1500 : 800,
-                temperature: 0.1
-            });
-            finalAnswer = completion.choices[0].message.content;
-            console.log('[Alpha] Groq synthesis OK');
-        } catch (llmErr) {
-            console.warn('[Alpha] Groq error:', llmErr.message.substring(0, 80));
+                },
+                { role: 'user', content: `Context:\n${context}${redactedNote}\n\nQuestion: ${query}` }
+            ];
+
+            try {
+                const completion = await groq.chat.completions.create({
+                    model: 'llama-3.3-70b-versatile',
+                    messages,
+                    max_tokens: isAdminQ ? 1500 : 800,
+                    temperature: 0.1
+                });
+                finalAnswer = completion.choices[0].message.content;
+                console.log('[Alpha] Groq synthesis OK (llama-3.3-70b)');
+            } catch (primaryErr) {
+                console.warn('[Alpha] Primary Groq model error:', primaryErr.message.substring(0, 80));
+                try {
+                    const fallbackCompletion = await groq.chat.completions.create({
+                        model: 'llama-3.1-8b-instant',
+                        messages,
+                        max_tokens: isAdminQ ? 1500 : 800,
+                        temperature: 0.1
+                    });
+                    finalAnswer = fallbackCompletion.choices[0].message.content;
+                    console.log('[Alpha] Groq fallback synthesis OK (llama-3.1-8b)');
+                } catch (fallbackErr) {
+                    console.warn('[Alpha] Groq fallback model error:', fallbackErr.message.substring(0, 80));
+                }
+            }
+        } catch (outerErr) {
+            console.warn('[Alpha] Groq SDK error:', outerErr.message.substring(0, 80));
         }
     }
 
