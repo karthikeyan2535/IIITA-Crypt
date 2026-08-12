@@ -31,16 +31,33 @@ import re
 MSK_FILE = os.path.join(os.path.dirname(__file__), "master.key")
 
 def get_msk(settings) -> str:
-    """Load MSK from the persisted key file, or bootstrap from .env on first run."""
+    """Load MSK from the persisted key file, or bootstrap from .env/.env-var on first run."""
     if os.path.exists(MSK_FILE):
-        with open(MSK_FILE, "r") as f:
-            return f.read().strip()
-    else:
-        # Fallback to .env if file doesn't exist, then persist it
-        msk = settings.msk
+        msk = open(MSK_FILE, "r").read().strip()
+        if msk:
+            print(f"[Beta] MSK loaded from master.key (prefix: {msk[:4]}...)")
+            return msk
+
+    # Fallback: read from the settings (i.e. MSK env var in Render dashboard)
+    msk = (settings.msk or "").strip()
+    if not msk:
+        # CRITICAL: MSK is missing. Fail fast with a clear error rather than
+        # silently using an empty string which would corrupt all HMAC checks.
+        raise RuntimeError(
+            "[Beta] FATAL: MSK environment variable is missing or empty. "
+            "Set MSK in the Render dashboard to the value used when data was encrypted. "
+            "All decryption will fail with 403 until this is fixed."
+        )
+
+    print(f"[Beta] MSK loaded from environment variable (prefix: {msk[:4]}...)")
+    try:
         with open(MSK_FILE, "w") as f:
             f.write(msk)
-        return msk
+        print(f"[Beta] MSK persisted to master.key for subsequent restarts")
+    except Exception as e:
+        # Non-fatal write failure (e.g. read-only filesystem in cloud deployment)
+        print(f"[Beta] Warning: Could not persist MSK to key file: {e}")
+    return msk
 
 # Case 3.2: Sanitize error messages before exposing them
 def _sanitize_err(msg: str) -> str:
@@ -65,9 +82,27 @@ class BatchDecryptRequest(BaseModel):
     attributes: List[str]
     policy: str
 
+@app.on_event("startup")
+async def startup_event():
+    """Validate MSK on service startup so misconfiguration is caught immediately."""
+    try:
+        from config import get_settings
+        settings = get_settings()
+        msk = get_msk(settings)
+        print(f"[Beta] Startup OK — MSK active (prefix: {msk[:4]}..., len={len(msk)})")
+    except RuntimeError as e:
+        print(str(e))
+        # Don't crash the process — allow /health to respond so Render logs show the error
+    except Exception as e:
+        print(f"[Beta] Startup warning: {e}")
+
 @app.get("/health")
-def health_check():
-    return {"status": "OK", "service": "encryption"}
+def health_check(settings=Depends(get_settings)):
+    try:
+        msk = get_msk(settings)
+        return {"status": "OK", "service": "encryption", "msk_prefix": msk[:4], "msk_len": len(msk)}
+    except RuntimeError as e:
+        return {"status": "ERROR", "service": "encryption", "error": "MSK not configured — set MSK env var in Render dashboard"}
 
 @app.post("/encrypt")
 def encrypt(request: EncryptRequest, settings=Depends(get_settings)):
