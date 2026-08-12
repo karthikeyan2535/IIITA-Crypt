@@ -340,7 +340,8 @@ async function findProfileByName(db, nameQuery, sub_types = null) {
     const lcWords = nameQuery.toLowerCase().match(/\b(aarav|sharma|riya|singh|karthik|verma|neha|gupta|rohan|das|priya|mehta|arjun|nair|sanya|kapoor|pakeer|karthikeyan)(?:'s|s)?\b/g) || [];
     const terms   = [...new Set([...words, ...lcWords])].map(w => w.replace(/'s$|s$/, '')).filter(Boolean);
     if (!terms.length) return [];
-    const regex = new RegExp(terms.join('|'), 'i');
+    // Enforce word boundaries so 'karthik' does not match 'karthikeyan'
+    const regex = new RegExp(terms.map(t => `\\b${t}\\b`).join('|'), 'i');
     const q = { $or: [{ name: regex }, { id: regex }] };
     if (sub_types) q.sub_type = { $in: sub_types };
     return await db.collection('userprofiles').find(
@@ -537,6 +538,10 @@ function synthesize(query, decryptedChunks, userContext) {
                 answer += `Your salary is **${data.Salary || data.Basic_Pay}** (${name}).\n`;
                 continue;
             }
+            if (data.Roll_Number && data.Department && !data.CGPA && !data.Fee_Status) {
+                answer += `- **${data.Name}** (\`${data.Roll_Number}\`) — ${data.Department}${data.Hostel ? ` (${data.Hostel})` : ''}\n`;
+                continue;
+            }
 
             // Default fallback: format all available fields for general profile requests
             const lines = Object.entries(data)
@@ -575,6 +580,7 @@ router.post('/', async (req, res) => {
 
     if (!query?.trim()) return res.status(400).json({ error: 'Query cannot be empty.' });
 
+    const q          = query.toLowerCase();
     const userId     = email.split('@')[0].toLowerCase();
     const upperAttrs = [...attributes.map(a => a.toUpperCase().trim()), userId.toUpperCase()];
     const intent     = classifyIntent(query);
@@ -632,20 +638,27 @@ router.post('/', async (req, res) => {
             case 'admin_student_list': {
                 const isDeanQ  = upperAttrs.includes('DEAN') || upperAttrs.includes('ADMIN');
                 const wardenAttr = upperAttrs.find(a => a.startsWith('HOSTEL-WARDEN-'));
+                
+                // Principle of Least Privilege: Select ONLY necessary sub-profiles for the query
+                const isFeeQuery      = /\b(fee|fees|paid|overdue|pending|defaulter|defaulters)\b/i.test(q);
+                const isAcademicQuery = /\b(cgpa|gpa|backlog|backlogs|scholarship|topper|rank|grade|marks|academic|below|above)\b/i.test(q);
+                const isHostelQuery   = /\b(hostel|room|address|curfew|leave|outing)\b/i.test(q);
+
+                let subTypes = ['directory']; // Default least-privilege for general "list all students"
+                if (isAcademicQuery || isFeeQuery) subTypes = ['academic'];
+                else if (isHostelQuery)             subTypes = ['hostel'];
+
                 if (isDeanQ) {
-                    // Dean sees BOTH academic + hostel sub-profiles for all students
-                    const all = await findProfilesByType(db, 'Student', ['academic', 'hostel']);
+                    const all = await findProfilesByType(db, 'Student', subTypes);
                     rawChunks = all.map(toChunk);
                 } else if (wardenAttr) {
-                    // Warden sees ONLY hostel sub-profiles for their own hostel residents
                     const hostelCode = wardenAttr.replace('HOSTEL-WARDEN-', ''); // e.g. BH1
-                    const all = await findProfilesByType(db, 'Student', ['hostel']);
+                    const all = await findProfilesByType(db, 'Student', ['hostel', 'directory']);
                     rawChunks = all
                         .filter(p => (p.hostel || '').replace('-','').toUpperCase() === hostelCode)
                         .map(toChunk);
                 } else {
-                    // Regular student: own academic sub-profile only
-                    const profiles = await findUserProfile(db, userId, ['academic']);
+                    const profiles = await findUserProfile(db, userId, subTypes);
                     rawChunks = profiles.map(toChunk);
                 }
                 break;
@@ -852,7 +865,8 @@ Never fabricate, infer, or extrapolate data beyond what is explicitly present in
 NEVER output 'Access Restricted' — the access control system has already cleared these documents for this user.
 
 Formatting & Conciseness Rules:
-- STRICT SPECIFICITY: Answer ONLY what the user explicitly asked for in 1 concise sentence. Do NOT list unrequested rules, full menus, or unrequested profile fields.
+- PRINCIPLE OF LEAST PRIVILEGE: Answer ONLY what the user explicitly asked for in 1 concise sentence or clean list. Do NOT dump unrequested profile fields.
+  * General student list ("list all students", "give me list of all students"): Output ONLY each student's Name, Roll Number, and Department (e.g., "- Aarav Sharma (iit2023001) — Information Technology"). Do NOT include CGPA, backlogs, fee status, scholarship status, phone numbers, guardian contacts, or room addresses unless explicitly requested.
   * Warden query ("who is my warden", "who is the warden"): State ONLY the warden's name and contact for the user's hostel (e.g., "The warden for BH-1 is Mr. Suresh Pandey (Phone: 9810300001)."). If no warden record is found for that hostel, state clearly: "No warden information is currently listed in the directory for your hostel." Do NOT list student records or CGPA.
   * Hostel assignment ("which hostel do i belong", "my hostel"): State ONLY the assigned hostel (e.g., "You belong to BH-2 (Room 204)."). Do NOT list hostel rules, leave application procedures, or other hostels.
   * Mess menu ("whats for lunch today", "whats mess menu of tomorrow"): Extract and state ONLY the requested meal for that specific day (e.g., "For lunch today (Wednesday) at BH-2 Mess: Palak Paneer, Roti."). Do NOT list the full week's menu or hostel rules.
