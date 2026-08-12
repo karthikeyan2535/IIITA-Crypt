@@ -159,7 +159,7 @@ function classifyIntent(query) {
 
     // Personal sub-types (own user's data)
     if (/\b(cgpa|gpa|my grade|academic record|my score|my marks|what is my cgpa|whats my cgpa|what.?s my cgpa|how.?s my cgpa|my academic|my gpa|current cgpa|my current cgpa)\b/.test(q))      return 'personal_cgpa';
-    if (/\b(my address|my room|my hostel room|where do i live|where am i staying|what room|which room|my room number)\b/.test(q))      return 'personal_address';
+    if (/\b(my address|my room|my hostel room|where do i live|where am i staying|what room|which room|my room number|which hostel|my hostel|what hostel|which hostel do i|which hostel am i|my hall|hostel assignment|hostel block)\b/.test(q))      return 'personal_address';
     if (/\b(my salary|salary grade|my pay|how much do i earn|my compensation|my ctc|my stipend)\b/.test(q))          return 'personal_salary';
     if (/\b(my backlog|backlog|backlogs|active backlog|arrear|pending subject|failed subject|backlog status|any backlog|have backlog|clear backlog|back.?log|do i have backlog|any arrears?)\b/.test(q))   return 'personal_backlogs';
     if (/\b(my fee|fee status|fees? due|fees? dues?|pending fee|fee due|tuition due|do i (owe|have fee|have dues)|fees? paid|fee paid|outstanding fee|any (fee|dues|payments?) (pending|due|owed))\b/.test(q))                    return 'personal_fee';
@@ -286,8 +286,10 @@ async function resolveMessChunks(db, intent, upperAttrs, role, userId) {
             if (requested && requested !== ownHostel) {
                 console.log(`[Mess] Student in ${ownHostel} asked for ${requested} → redirected`);
             }
-            // Always serve their own hostel
-            return findDocsByTitleMatch(db, [ownHostel]);
+            // Always serve their own hostel mess menu
+            const docs = await findDocsByTitleMatch(db, [`${ownHostel} Mess Menu`, ownHostel]);
+            const messOnly = docs.filter(d => /mess menu/i.test(d.title));
+            return messOnly.length > 0 ? messOnly : docs.slice(0, 1);
         }
         // Hostel not in JWT and not in DB — deny mess queries
         return [];
@@ -297,12 +299,18 @@ async function resolveMessChunks(db, intent, upperAttrs, role, userId) {
     if (isWarden) {
         const wardenCode = isWarden.replace('HOSTEL-WARDEN-', ''); // 'BH1'
         const wardenHostel = wardenCode.replace(/([A-Z]+)(\d+)/, '$1-$2'); // 'BH-1'
-        return findDocsByTitleMatch(db, [wardenHostel]);
+        const docs = await findDocsByTitleMatch(db, [`${wardenHostel} Mess Menu`, wardenHostel]);
+        const messOnly = docs.filter(d => /mess menu/i.test(d.title));
+        return messOnly.length > 0 ? messOnly : docs.slice(0, 1);
     }
 
     // ── Dean / Faculty: full access ─────────────────────────────────────────────
-    if (requested) return findDocsByTitleMatch(db, [requested]);
-    return findDocsByTitleMatch(db, ['Mess Menu', 'BH-1', 'BH-2', 'BH-3', 'GH-1'], 4);
+    if (requested) {
+        const docs = await findDocsByTitleMatch(db, [`${requested} Mess Menu`, requested]);
+        const messOnly = docs.filter(d => /mess menu/i.test(d.title));
+        return messOnly.length > 0 ? messOnly : docs.slice(0, 1);
+    }
+    return findDocsByTitleMatch(db, ['Mess Menu'], 4);
 }
 
 // ── Direct profile lookup by userId ──────────────────────────────────────────────
@@ -340,6 +348,74 @@ async function findProfileByName(db, nameQuery, sub_types = null) {
     ).toArray();
 }
 
+// ── Mess Menu Content Extractor ────────────────────────────────────────────────
+function parseMessMenuContent(plaintext, query) {
+    const q = query.toLowerCase();
+
+    // Determine target day
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+    let targetDayIndex = nowIST.getDay();
+    let dayLabelWord = 'today';
+
+    if (/\b(tomorrow|tommorrow)\b/.test(q)) {
+        targetDayIndex = (targetDayIndex + 1) % 7;
+        dayLabelWord = 'tomorrow';
+    } else {
+        for (let i = 0; i < days.length; i++) {
+            if (new RegExp(`\\b${days[i].toLowerCase()}\\b`).test(q)) {
+                targetDayIndex = i;
+                dayLabelWord = days[i];
+                break;
+            }
+        }
+    }
+    const targetDay = days[targetDayIndex];
+
+    // Determine target meal
+    let targetMeal = null;
+    if (/\b(lunch)\b/.test(q)) targetMeal = 'Lunch';
+    else if (/\b(dinner)\b/.test(q)) targetMeal = 'Dinner';
+    else if (/\b(breakfast)\b/.test(q)) targetMeal = 'Breakfast';
+
+    const hostelMatch = plaintext.match(/(BH-\d|GH-\d)/i);
+    const hostelName = hostelMatch ? hostelMatch[1].toUpperCase() : 'Mess';
+
+    // Parse Day sections
+    const dayRegex = /(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Weekend):?/gi;
+    const matches = [...plaintext.matchAll(dayRegex)];
+
+    let dayText = '';
+    for (let i = 0; i < matches.length; i++) {
+        const m = matches[i];
+        const dayName = m[1];
+        const start = m.index + m[0].length;
+        const end = (i < matches.length - 1) ? matches[i+1].index : plaintext.length;
+        const content = plaintext.substring(start, end).trim();
+
+        if (dayName.toLowerCase() === targetDay.toLowerCase() || 
+           (dayName.toLowerCase() === 'weekend' && (targetDay === 'Saturday' || targetDay === 'Sunday'))) {
+            dayText += ' ' + content;
+        }
+    }
+
+    const dayLabel = dayLabelWord === targetDay ? targetDay : `${dayLabelWord} (${targetDay})`;
+
+    if (dayText.trim()) {
+        if (targetMeal) {
+            const mealRegex = new RegExp(`${targetMeal}:?\\s*([^\\.\\n]+)`, 'i');
+            const mealMatch = dayText.match(mealRegex);
+            if (mealMatch && mealMatch[1].trim()) {
+                return `For **${targetMeal.toLowerCase()} ${dayLabel}** at **${hostelName} Mess**: ${mealMatch[1].trim()}.`;
+            }
+        }
+        const cleaned = dayText.replace(/([A-Z][a-z]+:)/g, '\n- **$1**').trim();
+        return `**${hostelName} Mess Menu for ${dayLabel}**:\n${cleaned}`;
+    }
+
+    return null;
+}
+
 // ── Convert profile doc to rawChunk ──────────────────────────────────────────
 const toChunk = (p) => ({
     title: `${p.name} (${p.id}) — ${p.metadata?.description || p.sub_type || 'Profile'}`,
@@ -365,7 +441,7 @@ function synthesize(query, decryptedChunks, userContext) {
     const isFeeReq       = /\b(fee|fees|due|dues|paid|overdue|tuition)\b/.test(q);
     const isBacklogReq   = /\b(backlog|backlogs|arrear|failed subject)\b/.test(q);
     const isScholarReq   = /\b(scholarship|scholarships|mcm|stipend)\b/.test(q);
-    const isAddressReq   = /\b(address|room|hostel room|where do i live)\b/.test(q);
+    const isAddressReq   = /\b(address|room|hostel room|where do i live|which hostel|my hostel|what hostel|which hall|my hall)\b/.test(q);
     const isSalaryReq    = /\b(salary|pay|earn|compensation|ctc)\b/.test(q);
 
     let answer = '';
@@ -392,8 +468,12 @@ function synthesize(query, decryptedChunks, userContext) {
                 continue;
             }
             if (isAddressReq && (data.Hostel || data.Room || data.Address)) {
-                const addr = data.Address || `${data.Hostel || ''} Room ${data.Room || ''}`.trim();
-                answer += `Your hostel address is **${addr}** (${name}).\n`;
+                if (data.Hostel && (q.includes('which hostel') || q.includes('my hostel') || q.includes('what hostel'))) {
+                    answer += `You belong to **${data.Hostel}**${data.Room ? ` (Room ${data.Room})` : ''}.\n`;
+                } else {
+                    const addr = data.Address || `${data.Hostel || ''} Room ${data.Room || ''}`.trim();
+                    answer += `Your hostel address is **${addr}** (${name}).\n`;
+                }
                 continue;
             }
             if (isSalaryReq && (data.Salary || data.Basic_Pay)) {
@@ -408,6 +488,13 @@ function synthesize(query, decryptedChunks, userContext) {
                 .join('\n');
             answer += `### ${chunk.title}\n${lines}\n\n`;
         } catch {
+            if (/\bmess menu\b/i.test(chunk.title) || /\b(lunch|dinner|breakfast|food|eat|meal|menu)\b/i.test(q)) {
+                const messExtract = parseMessMenuContent(chunk.plaintext, q);
+                if (messExtract) {
+                    answer += `${messExtract}\n\n`;
+                    continue;
+                }
+            }
             answer += `### ${chunk.title}\n${chunk.plaintext}\n\n`;
         }
     }
@@ -700,17 +787,16 @@ Never fabricate, infer, or extrapolate data beyond what is explicitly present in
 NEVER output 'Access Restricted' — the access control system has already cleared these documents for this user.
 
 Formatting & Conciseness Rules:
-- STRICT SPECIFICITY: Answer ONLY what the user explicitly asked for in 1 concise sentence. Do NOT list unrequested fields.
-  * If asked for CGPA ("whats my cgpa", "my cgpa"): State ONLY their CGPA score (e.g., "Your current CGPA is 8.5."). Do NOT include fee status, backlogs, scholarship, or room details.
-  * If asked for fee status or dues ("whats my fee status", "do i have dues"): State ONLY their fee status (e.g., "Your fee status is Paid."). Do NOT include CGPA or backlogs.
-  * If asked for backlogs: State ONLY their active backlog count.
-  * If asked for scholarship: State ONLY their scholarship status.
-  * If asked for room/address: State ONLY their hostel room address.
-  * If asked for salary: State ONLY their salary figure.
-  * Only list multiple key-value fields if the user explicitly asks for "my profile", "full details", or a general record overview.
+- STRICT SPECIFICITY: Answer ONLY what the user explicitly asked for in 1 concise sentence. Do NOT list unrequested rules, full menus, or unrequested profile fields.
+  * Hostel assignment ("which hostel do i belong", "my hostel"): State ONLY the assigned hostel (e.g., "You belong to BH-2 (Room 204)."). Do NOT list hostel rules, leave application procedures, or other hostels.
+  * Mess menu ("whats for lunch today", "whats mess menu of tomorrow"): Extract and state ONLY the requested meal for that specific day (e.g., "For lunch today (Wednesday) at BH-2 Mess: Palak Paneer, Roti."). Do NOT list the full week's menu or hostel rules.
+  * CGPA ("whats my cgpa"): State ONLY the CGPA score (e.g., "Your current CGPA is 8.5.").
+  * Fee status / dues ("do i have fees dues"): State ONLY the fee status (e.g., "Your fee status is Paid.").
+  * Backlogs: State ONLY active backlog count.
+  * Scholarship: State ONLY scholarship status.
+  * Salary: State ONLY the salary.
 - Do NOT quote raw [Source X] tags or raw JSON structures. Synthesize the answer naturally in plain language.
-- Mess menu: list items for the requested meal/day clearly. Highlight today's date using the current date above.
-- Policy documents: quote the exact rule, then explain it briefly.`
+- Be concise, direct, accurate, and answer in 1-2 short sentences unless full list/table is explicitly requested.`
                     },
                     { role: 'user', content: `Context:\n${context}${redactedNote}\n\nQuestion: ${query}` }
                 ],
