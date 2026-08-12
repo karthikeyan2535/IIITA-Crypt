@@ -138,6 +138,24 @@ export default function Chat({ user, onLogout, onTokenRefresh }) {
     }
   };
 
+  const handleClearHistory = async () => {
+    try {
+      if (!user.isGuest) {
+        await fetch(`${API_BASE}/api/chat/history`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${user.token}` }
+        });
+      }
+      setMessages([{
+        _id: 'welcome',
+        sender: 'bot',
+        text: user.isGuest
+          ? `Welcome to **IIITA-Crypt** 🔐\n\nYou are browsing as a **Guest**. Feel free to ask about general IIITA information!`
+          : `Welcome to **IIITA-Crypt** 🔐\n\nChat history has been **cleared**.\n\nAuthenticated as **${user.role}** (${user.email}).`
+      }]);
+    } catch (_) {}
+  };
+
   const handleSend = (e) => { e.preventDefault(); sendQuery(input); };
 
   // ── Role-Adaptive Sidebar ──────────────────────────────────────────────────
@@ -300,7 +318,16 @@ export default function Chat({ user, onLogout, onTokenRefresh }) {
         <header className="px-6 py-3 bg-white/95 backdrop-blur-sm border-b border-gray-200 flex items-center gap-3 shrink-0">
           <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
           <span className="text-sm font-semibold text-gray-600">Secure RAG Session Active</span>
-          <span className="ml-auto text-xs text-gray-400 font-mono">CP-ABE · MSK Persistent · Floor 0.7</span>
+          <div className="ml-auto flex items-center gap-3">
+            <button
+              onClick={handleClearHistory}
+              title="Clear Chat History"
+              className="text-xs font-semibold px-2.5 py-1 rounded bg-gray-100 text-gray-600 hover:bg-red-50 hover:text-red-600 border border-gray-200 transition-colors"
+            >
+              🗑️ Clear Chat
+            </button>
+            <span className="text-xs text-gray-400 font-mono hidden sm:inline">CP-ABE · MSK Persistent</span>
+          </div>
         </header>
 
         {/* Messages */}

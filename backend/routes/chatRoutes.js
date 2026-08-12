@@ -936,4 +936,14 @@ router.get('/history', async (req, res) => {
     }
 });
 
+router.delete('/history', async (req, res) => {
+    if (req.user.isGuest) return res.json({ message: 'History cleared' });
+    try {
+        await ChatHistory.deleteOne({ email: req.user.email });
+        res.json({ message: 'History cleared successfully' });
+    } catch {
+        res.status(500).json({ error: 'Failed to clear history' });
+    }
+});
+
 export default router;
