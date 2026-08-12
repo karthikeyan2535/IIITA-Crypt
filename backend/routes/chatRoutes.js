@@ -1,5 +1,6 @@
 import express from 'express';
 import mongoose from 'mongoose';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { redactChunkOnError } from '../middleware/errorHandler.js';
 import ChatHistory from '../models/ChatHistory.js';
 
@@ -10,21 +11,103 @@ const router = express.Router();
 // Falls back to localhost for local dev.
 const ENCRYPTION_SERVICE_URL = process.env.ENCRYPTION_SERVICE_URL || 'http://localhost:8000';
 
-// ── Agent Beta: Decrypt a single chunk via Python service ─────────────────────
-async function decryptChunk(chunk, upperAttrs) {
+// ── Built-in decryption fallback (mirrors Python service logic exactly) ────────
+// Used when Beta (Python) is unavailable (e.g. cold start, not deployed, 404).
+// Implements the same HMAC-SHA256 + base64 + policy evaluation as main.py.
+function decryptLocal(ciphertext, upperAttrs, policyHint) {
+    const MSK = process.env.MSK || '';
+    if (!MSK) {
+        throw new Error('MSK env var not set — cannot decrypt locally');
+    }
+
+    // 1. Split signature from payload
+    const dotIdx = ciphertext.indexOf('.');
+    if (dotIdx === -1) throw new Error('Invalid ciphertext: missing HMAC separator');
+    const signature    = ciphertext.substring(0, dotIdx);
+    const encodedCipher = ciphertext.substring(dotIdx + 1);
+
+    // 2. Verify HMAC (timing-safe)
+    const expected = createHmac('sha256', MSK).update(encodedCipher).digest('hex');
     try {
-        const policy = (chunk.metadata?.policy || 'PUBLIC').toUpperCase();
+        if (!timingSafeEqual(Buffer.from(signature, 'hex'), Buffer.from(expected, 'hex'))) {
+            throw new Error('HMAC mismatch');
+        }
+    } catch {
+        throw new Error('[REDACTED: Ciphertext Tampering Detected — HMAC mismatch]');
+    }
+
+    // 3. Base64-decode (handle missing padding)
+    const padded = encodedCipher + '='.repeat((4 - encodedCipher.length % 4) % 4);
+    const decoded = Buffer.from(padded, 'base64').toString('utf-8');
+
+    // 4. Parse CP-ABE envelope: "CP-ABE[Policy:<POLICY>]|Data:<plaintext>"
+    let embeddedPolicy = '';
+    let plaintext = decoded;
+    if (decoded.includes('CP-ABE[Policy:') && decoded.includes('|Data:')) {
+        embeddedPolicy = decoded.split('CP-ABE[Policy:')[1].split(']')[0].trim().toUpperCase();
+        plaintext      = decoded.split('|Data:')[1];
+    }
+
+    const effectivePolicy = (embeddedPolicy || policyHint || '').trim().toUpperCase();
+
+    // 5. PUBLIC → always allowed
+    if (!effectivePolicy || effectivePolicy === 'PUBLIC') return plaintext;
+
+    // 6. Dean/Admin override
+    if (upperAttrs.includes('DEAN') || upperAttrs.includes('ADMIN')) return plaintext;
+
+    // 7. Policy evaluation: OR of AND clauses
+    const checkClause = (clause) => {
+        const parts = clause.split(' AND ').map(p => p.trim().toUpperCase()).filter(Boolean);
+        return parts.length > 0 && parts.every(p => upperAttrs.includes(p));
+    };
+
+    const satisfied = effectivePolicy.split(' OR ')
+        .map(c => c.trim())
+        .filter(Boolean)
+        .some(checkClause);
+
+    if (!satisfied) {
+        throw new Error(`[REDACTED: Access Denied] Policy '${effectivePolicy}' not satisfied by attributes`);
+    }
+
+    return plaintext;
+}
+
+// ── Agent Beta: Decrypt a single chunk via Python service → local fallback ─────
+async function decryptChunk(chunk, upperAttrs) {
+    const policy = (chunk.metadata?.policy || 'PUBLIC').toUpperCase();
+
+    // Try Agent Beta (Python service) first
+    try {
         const betaRes = await fetch(`${ENCRYPTION_SERVICE_URL}/decrypt-batch`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ciphertext: chunk.ciphertext, attributes: upperAttrs, policy }),
-            signal: AbortSignal.timeout(45000)
+            signal: AbortSignal.timeout(10000)   // Reduced timeout so fallback is fast
         });
-        if (!betaRes.ok) throw new Error(`Beta ${betaRes.status}: ${await betaRes.text()}`);
+        if (!betaRes.ok) {
+            const errBody = await betaRes.text().catch(() => '');
+            throw new Error(`Beta ${betaRes.status}: ${errBody}`);
+        }
         const { plaintext } = await betaRes.json();
         return { title: chunk.title, plaintext, policy, type: chunk.type, status: 'ok' };
-    } catch (err) {
-        return redactChunkOnError(chunk, err);
+    } catch (betaErr) {
+        // Beta unavailable or returned error — try local decryption
+        const betaErrMsg = betaErr.message || String(betaErr);
+        console.warn(`[Beta] Service error: ${betaErrMsg.substring(0, 80)} — trying local fallback`);
+
+        try {
+            const plaintext = decryptLocal(chunk.ciphertext, upperAttrs, policy);
+            console.log(`[Beta-Local] Decrypted locally: ${chunk.title}`);
+            return { title: chunk.title, plaintext, policy, type: chunk.type, status: 'ok' };
+        } catch (localErr) {
+            // Both Beta and local failed — redact per Rule 3
+            const localErrMsg = localErr.message || String(localErr);
+            console.warn(`[Beta-Local] Local decrypt failed: ${localErrMsg.substring(0, 80)}`);
+            // If this looks like a genuine access denial (not a service error), redact
+            return redactChunkOnError(chunk, localErr);
+        }
     }
 }
 

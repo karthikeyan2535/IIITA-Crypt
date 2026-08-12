@@ -24,6 +24,8 @@ services:
         sync: false          # Set manually in dashboard
       - key: JWT_SECRET
         sync: false
+      - key: MSK
+        sync: false          # Same value as encryption service — needed for local decrypt fallback
       - key: OPENAI_API_KEY
         sync: false
       - key: GROQ_API_KEY
