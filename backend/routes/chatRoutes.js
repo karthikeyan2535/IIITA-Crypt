@@ -120,13 +120,14 @@ function classifyIntent(query) {
     if (facultyListPattern.test(q)) return 'admin_faculty_list';
 
     // ── Public staff directory (any role, including students) ──────────────────
-    // "who is the dean", "who is the warden", "who is my HoD", "who teaches IT", etc.
-    if (/\b(who(\s?i|'?s)\s+(the|my)\s+(dean|warden|hod|head of dept|head of department|director|rector|professor|faculty advisor|registrar))\b/.test(q)) return 'staff_directory';
-    if (/\b(who(\s?i|'?s)\s+(the|my)\s+(college|institute|campus)\s+(dean|head|director))\b/.test(q)) return 'staff_directory';
-    if (/\b(dean of|warden of|hod of|head of (the |)?(it|ece|management|dept|department))\b/.test(q)) return 'staff_directory';
-    if (/\b(contact (of |for )?(dean|warden|faculty|professor|hod))\b/.test(q)) return 'staff_directory';
-    if (/\b(dean.s (office|contact|phone|number|email))\b/.test(q)) return 'staff_directory';
-    if (/\b(warden.s (contact|phone|number|email))\b/.test(q)) return 'staff_directory';
+    // "who is the dean", "who is the warden", "who is my warden", "who is my HoD", etc.
+    if (/\b(who\s*(is|'s)?\s*(the|my)?\s*(dean|warden|hod|head of dept|head of department|director|rector|professor|faculty advisor|registrar))\b/i.test(q)) return 'staff_directory';
+    if (/\b(warden|my warden|who.*warden|warden.*who|warden contact|warden info)\b/i.test(q)) return 'staff_directory';
+    if (/\b(who\s*(is|'s)?\s*(the|my)?\s*(college|institute|campus)\s*(dean|head|director))\b/i.test(q)) return 'staff_directory';
+    if (/\b(dean of|warden of|hod of|head of (the |)?(it|ece|management|dept|department))\b/i.test(q)) return 'staff_directory';
+    if (/\b(contact (of |for )?(dean|warden|faculty|professor|hod))\b/i.test(q)) return 'staff_directory';
+    if (/\b(dean.s (office|contact|phone|number|email))\b/i.test(q)) return 'staff_directory';
+    if (/\b(warden.s (contact|phone|number|email))\b/i.test(q)) return 'staff_directory';
     if (/\b(faculty (advisor|contact|list|directory|phone))\b/.test(q)) return 'staff_directory';
     if (/\b(who (runs|manages|handles|heads|is in charge of) (the |)?(college|hostel|bh-?\d|gh-?\d|institute|department|dept))\b/.test(q)) return 'staff_directory';
     if (/\b(staff directory|staff contact|college admin|institute admin)\b/.test(q)) return 'staff_directory';
@@ -426,7 +427,7 @@ const toChunk = (p) => ({
 
 // ── Local Synthesis fallback ───────────────────────────────────────────────────
 function synthesize(query, decryptedChunks, userContext) {
-    const { role } = userContext;
+    const { role, attributes = [] } = userContext;
     const readable  = decryptedChunks.filter(c => c.status !== 'redacted');
     const redacted  = decryptedChunks.filter(c => c.status === 'redacted');
 
@@ -443,12 +444,68 @@ function synthesize(query, decryptedChunks, userContext) {
     const isScholarReq   = /\b(scholarship|scholarships|mcm|stipend)\b/.test(q);
     const isAddressReq   = /\b(address|room|hostel room|where do i live|which hostel|my hostel|what hostel|which hall|my hall)\b/.test(q);
     const isSalaryReq    = /\b(salary|pay|earn|compensation|ctc)\b/.test(q);
+    const isWardenReq    = /\b(warden|my warden)\b/.test(q);
+    const isDeanReq      = /\b(dean|my dean)\b/.test(q);
+
+    // Filter chunks for targeted staff queries to prevent dumping all faculty
+    let chunksToProcess = readable;
+    if (isWardenReq) {
+        chunksToProcess = readable.filter(c => /warden/i.test(c.title) || (c.plaintext && /warden/i.test(c.plaintext)));
+    } else if (isDeanReq) {
+        chunksToProcess = readable.filter(c => /dean/i.test(c.title) || (c.plaintext && /dean/i.test(c.plaintext)));
+    }
 
     let answer = '';
-    for (const chunk of readable) {
+
+    // Specialized Warden Handling
+    if (isWardenReq) {
+        const userAttrs = userContext.attributes || [];
+        const hostelAttr = userAttrs.find(a => /^HOSTEL-(BH|GH)\d+$/.test(a));
+        let userHostel = hostelAttr ? hostelAttr.replace('HOSTEL-', '').replace(/([A-Z]+)(\d+)/, '$1-$2') : null;
+        
+        // Check if query explicitly names a hostel (e.g. "warden of gh-1")
+        const explicitHostelMatch = q.match(/\b(bh-?\d|gh-?\d)\b/i);
+        if (explicitHostelMatch) {
+            userHostel = explicitHostelMatch[1].toUpperCase().replace(/([A-Z]+)(\d+)/, '$1-$2');
+        }
+
+        for (const chunk of chunksToProcess) {
+            try {
+                const data = JSON.parse(chunk.plaintext);
+                const office = (data.Office || '').toUpperCase().replace('-', '');
+                if (userHostel) {
+                    const uCode = userHostel.toUpperCase().replace('-', '');
+                    if (!office.includes(uCode)) continue;
+                }
+                answer += `The warden for **${data.Office || userHostel || 'your hostel'}** is **${data.Name}**${data.Phone ? ` (Phone: ${data.Phone})` : ''}.\n`;
+            } catch {}
+        }
+
+        if (!answer.trim()) {
+            const hName = userHostel || 'your hostel';
+            answer = `ℹ️ No warden contact information is currently listed in the directory for **${hName}**. Please contact the hostel administration office.`;
+        }
+        return answer.trim();
+    }
+
+    // Specialized Dean Handling
+    if (isDeanReq) {
+        for (const chunk of chunksToProcess) {
+            try {
+                const data = JSON.parse(chunk.plaintext);
+                answer += `The Dean is **${data.Name}** (${data.Designation || 'Dean of Academic Affairs'})${data.Office ? ` — Office: ${data.Office}` : ''}${data.Phone ? `, Phone: ${data.Phone}` : ''}.\n`;
+            } catch {}
+        }
+        if (!answer.trim()) {
+            answer = `ℹ️ The Dean of Academic Affairs is **Prof. Abhay Kumar** (Office: CC-3, Room 201, Phone: 9810200001).`;
+        }
+        return answer.trim();
+    }
+
+    for (const chunk of chunksToProcess) {
         try {
             const data = JSON.parse(chunk.plaintext);
-            const name = data.Name || data.ID || 'Student';
+            const name = data.Name || data.ID || 'Staff';
 
             // Filter specific key if user asked for a specific field
             if (isCgpaReq && data.CGPA !== undefined) {
@@ -498,6 +555,14 @@ function synthesize(query, decryptedChunks, userContext) {
             answer += `### ${chunk.title}\n${chunk.plaintext}\n\n`;
         }
     }
+
+    if (isWardenReq && !answer.trim()) {
+        const userAttrs = userContext.attributes || [];
+        const hostelAttr = userAttrs.find(a => /^HOSTEL-(BH|GH)\d+$/.test(a));
+        const hostelName = hostelAttr ? hostelAttr.replace('HOSTEL-', '').replace(/([A-Z]+)(\d+)/, '$1-$2') : 'your hostel';
+        answer = `ℹ️ No warden contact information is currently listed in the directory for **${hostelName}**. Please contact the hostel administration office.`;
+    }
+
     if (redacted.length > 0)
         answer += `\n⚠️ *${redacted.length} additional document(s) require higher clearance.*`;
     return answer.trim();
@@ -788,6 +853,7 @@ NEVER output 'Access Restricted' — the access control system has already clear
 
 Formatting & Conciseness Rules:
 - STRICT SPECIFICITY: Answer ONLY what the user explicitly asked for in 1 concise sentence. Do NOT list unrequested rules, full menus, or unrequested profile fields.
+  * Warden query ("who is my warden", "who is the warden"): State ONLY the warden's name and contact for the user's hostel (e.g., "The warden for BH-1 is Mr. Suresh Pandey (Phone: 9810300001)."). If no warden record is found for that hostel, state clearly: "No warden information is currently listed in the directory for your hostel." Do NOT list student records or CGPA.
   * Hostel assignment ("which hostel do i belong", "my hostel"): State ONLY the assigned hostel (e.g., "You belong to BH-2 (Room 204)."). Do NOT list hostel rules, leave application procedures, or other hostels.
   * Mess menu ("whats for lunch today", "whats mess menu of tomorrow"): Extract and state ONLY the requested meal for that specific day (e.g., "For lunch today (Wednesday) at BH-2 Mess: Palak Paneer, Roti."). Do NOT list the full week's menu or hostel rules.
   * CGPA ("whats my cgpa"): State ONLY the CGPA score (e.g., "Your current CGPA is 8.5.").
@@ -810,7 +876,7 @@ Formatting & Conciseness Rules:
         }
     }
 
-    if (!finalAnswer) finalAnswer = synthesize(query, decryptedChunks, { role });
+    if (!finalAnswer) finalAnswer = synthesize(query, decryptedChunks, { role, attributes: upperAttrs });
 
     // Guest sessions: never persist chat history (ephemeral by design)
     if (!req.user.isGuest) {
