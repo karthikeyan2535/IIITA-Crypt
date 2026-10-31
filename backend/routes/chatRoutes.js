@@ -503,6 +503,70 @@ function synthesize(query, decryptedChunks, userContext) {
         return answer.trim();
     }
 
+    // Specialized Individual Staff / Faculty Member Query
+    const namedStaffChunk = readable.find(c => {
+        try {
+            const data = JSON.parse(c.plaintext);
+            if (!data.Name && !data.ID) return false;
+            const nameLower = (data.Name || '').toLowerCase().replace(/\b(dr|prof|mr|ms|mrs)\.?\s+/g, '').trim();
+            const idLower = (data.ID || '').toLowerCase();
+            const qNorm = q.replace(/[\.\s_\-]+/g, '');
+            const nameNorm = nameLower.replace(/[\.\s_\-]+/g, '');
+            const idNorm = idLower.replace(/[\.\s_\-]+/g, '');
+            if (qNorm.includes(nameNorm) || qNorm.includes(idNorm)) return true;
+            const nameParts = nameLower.split(/[\s\.]+/).filter(p => p.length > 2);
+            if (nameParts.length > 0 && nameParts.every(p => q.includes(p))) return true;
+            return false;
+        } catch {
+            return false;
+        }
+    });
+
+    if (namedStaffChunk) {
+        try {
+            const data = JSON.parse(namedStaffChunk.plaintext);
+            const isDeptReq = /\b(dept|department|teach|teaches|subject|course)\b/i.test(q);
+            const isContactReq = /\b(contact|phone|number|mobile|email|office|room|cabin)\b/i.test(q);
+            if (isDeptReq && data.Department) {
+                return `**${data.Name}** teaches in the **${data.Department}** Department (${data.Designation || 'Faculty'}).`;
+            }
+            if (isContactReq) {
+                return `**${data.Name}** (${data.Designation || 'Faculty'}${data.Department ? `, ${data.Department}` : ''}): Phone: **${data.Phone || 'N/A'}**${data.Office ? ` | Office: **${data.Office}**` : ''}.`;
+            }
+            return `**${data.Name}** (${data.ID}) — **${data.Designation || 'Staff'}**${data.Department ? ` in **${data.Department}**` : ''}${data.Office ? ` (Office: ${data.Office})` : ''}${data.Phone ? `, Phone: ${data.Phone}` : ''}.`;
+        } catch {}
+    }
+
+    // Specialized Department Faculty Query ("who teaches IT?", "who teaches ECE?", etc.)
+    let targetDept = null;
+    const m1 = q.match(/\b(who\s+(?:teaches|is\s+teaching)|teachers?\s+(?:in|of)|faculty\s+(?:in|of|for))\s+(it|ece|management|mgmt|it-business)\b/i);
+    const m2 = q.match(/\b(it|ece|management|mgmt|it-business)\s+(?:department\s+)?(?:faculty|teachers?)\b/i);
+    const m3 = (q.includes('who teaches') || q.includes('who is teaching')) && /\b(it|ece|management|mgmt)\b/i.test(q) ? q.match(/\b(it|ece|management|mgmt)\b/i) : null;
+
+    if (m1) targetDept = m1[2].toUpperCase();
+    else if (m2) targetDept = m2[1].toUpperCase();
+    else if (m3) targetDept = m3[1].toUpperCase();
+
+    if (targetDept) {
+        if (targetDept === 'MGMT') targetDept = 'MANAGEMENT';
+        const matchingFaculty = [];
+        for (const chunk of readable) {
+            try {
+                const data = JSON.parse(chunk.plaintext);
+                if (data.Department && data.Department.toUpperCase() === targetDept) {
+                    matchingFaculty.push(data);
+                }
+            } catch {}
+        }
+
+        if (matchingFaculty.length > 0) {
+            return `Faculty who teach in the **${targetDept} Department**:\n` +
+                matchingFaculty.map(f => `- **${f.Name}** (${f.Designation || 'Faculty'})${f.Phone ? ` — Phone: ${f.Phone}` : ''}`).join('\n');
+        } else {
+            return `ℹ️ No faculty members currently listed for the **${targetDept} Department** in the directory.`;
+        }
+    }
+
     for (const chunk of chunksToProcess) {
         try {
             const data = JSON.parse(chunk.plaintext);
@@ -868,6 +932,8 @@ Formatting & Conciseness Rules:
   * Warden query ("who is my warden", "who is the warden"): State ONLY the warden's name and contact for the user's hostel (e.g., "The warden for BH-1 is Mr. Suresh Pandey (Phone: 9810300001)."). If no warden record is found for that hostel, state clearly: "No warden information is currently listed in the directory for your hostel." Do NOT list student records or CGPA.
   * Hostel assignment ("which hostel do i belong", "my hostel"): State ONLY the assigned hostel (e.g., "You belong to BH-2 (Room 204)."). Do NOT list hostel rules, leave application procedures, or other hostels.
   * Mess menu ("whats for lunch today", "whats mess menu of tomorrow"): Extract and state ONLY the requested meal for that specific day (e.g., "For lunch today (Wednesday) at BH-2 Mess: Palak Paneer, Roti."). Do NOT list the full week's menu or hostel rules.
+  * Faculty specific query ("which dept does dr kavita joshi teach in", "who is dr kavita joshi"): State ONLY that person's department and designation (e.g., "Dr. Kavita Joshi teaches in the IT Department as an Associate Professor."). Do NOT list any other faculty members, wardens, or deans.
+  * Department faculty query ("who teaches IT", "faculty of IT"): List ONLY the faculty members in that specific department (e.g., "- Dr. S. K. Singh (Professor)\n- Dr. Ravi Shankar (Professor & HoD)\n- Dr. Kavita Joshi (Associate Professor)"). Do NOT list faculty from other departments, wardens, or deans.
   * CGPA ("whats my cgpa"): State ONLY the CGPA score (e.g., "Your current CGPA is 8.5.").
   * Fee status / dues ("do i have fees dues"): State ONLY the fee status (e.g., "Your fee status is Paid.").
   * Backlogs: State ONLY active backlog count.
@@ -879,28 +945,23 @@ Formatting & Conciseness Rules:
                 { role: 'user', content: `Context:\n${context}${redactedNote}\n\nQuestion: ${query}` }
             ];
 
-            try {
-                const completion = await groq.chat.completions.create({
-                    model: 'llama-3.3-70b-versatile',
-                    messages,
-                    max_tokens: isAdminQ ? 1500 : 800,
-                    temperature: 0.1
-                });
-                finalAnswer = completion.choices[0].message.content;
-                console.log('[Alpha] Groq synthesis OK (llama-3.3-70b)');
-            } catch (primaryErr) {
-                console.warn('[Alpha] Primary Groq model error:', primaryErr.message.substring(0, 80));
+            const candidateModels = ['qwen/qwen3.8-27b', 'llama-3.3-70b-versatile', 'llama-3.1-8b-instant'];
+            for (const model of candidateModels) {
                 try {
-                    const fallbackCompletion = await groq.chat.completions.create({
-                        model: 'llama-3.1-8b-instant',
+                    const completion = await groq.chat.completions.create({
+                        model,
                         messages,
                         max_tokens: isAdminQ ? 1500 : 800,
                         temperature: 0.1
                     });
-                    finalAnswer = fallbackCompletion.choices[0].message.content;
-                    console.log('[Alpha] Groq fallback synthesis OK (llama-3.1-8b)');
-                } catch (fallbackErr) {
-                    console.warn('[Alpha] Groq fallback model error:', fallbackErr.message.substring(0, 80));
+                    const content = completion.choices[0]?.message?.content;
+                    if (content && content.trim()) {
+                        finalAnswer = content.trim();
+                        console.log(`[Alpha] Groq synthesis OK (${model})`);
+                        break;
+                    }
+                } catch (modelErr) {
+                    console.warn(`[Alpha] Groq model ${model} error:`, modelErr.message.substring(0, 80));
                 }
             }
         } catch (outerErr) {
