@@ -53,10 +53,18 @@ const loginLimiter = rateLimit({
 
 app.use(express.json());
 
-// ── Connect to MongoDB Atlas ────────────────────────────────────────────
-mongoose.connect(process.env.MONGODB_URL)
-    .then(() => console.log('✅ MongoDB Atlas Connected Successfully!'))
-    .catch((err) => console.error('❌ MongoDB Connection Error:', err.message));
+// ── Connect to MongoDB Atlas (Resilient Auto-Retry) ─────────────────────
+const connectDB = async () => {
+    if (mongoose.connection.readyState === 1 || mongoose.connection.readyState === 2) return;
+    try {
+        await mongoose.connect(process.env.MONGODB_URL);
+        console.log('✅ MongoDB Atlas Connected Successfully!');
+    } catch (err) {
+        console.error('❌ MongoDB Connection Error:', err.message);
+        setTimeout(connectDB, 5000);
+    }
+};
+connectDB();
 
 // ── JWT Auth Middleware ───────────────────────────────────────────────────
 const authenticateJWT = (req, res, next) => {
@@ -78,6 +86,9 @@ const authenticateJWT = (req, res, next) => {
 // ── Health Check (unauthenticated — used by Render & monitoring) ──────
 app.get('/api/health', (req, res) => {
     const dbState = mongoose.connection.readyState; // 1 = connected
+    if (dbState !== 1) {
+        connectDB();
+    }
     res.json({
         status: dbState === 1 ? 'OK' : 'DEGRADED',
         service: 'iiita-crypt-backend',
